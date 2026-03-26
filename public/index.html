@@ -1,0 +1,683 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Course Viewer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:        #0e0e10;
+    --bg2:       #15151a;
+    --bg3:       #1c1c23;
+    --border:    #2a2a35;
+    --text:      #e8e8f0;
+    --muted:     #6b6b80;
+    --accent:    #e8a020;
+    --accent2:   #c47d10;
+    --done:      #2a7a4a;
+    --done-bg:   #0e2018;
+    --sidebar-w: 360px;
+    --header-h:  56px;
+  }
+
+  html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(--text); font-family: 'Syne', sans-serif; }
+
+  /* ── HEADER ── */
+  header {
+    height: var(--header-h);
+    background: var(--bg2);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    padding: 0 16px;
+    gap: 12px;
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 100;
+  }
+  header .logo { font-size: 15px; font-weight: 800; letter-spacing: 0.04em; color: var(--accent); white-space: nowrap; }
+  header .logo span { color: var(--muted); font-weight: 400; }
+  .path-input {
+    flex: 1;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 7px 12px;
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  .path-input:focus { border-color: var(--accent); }
+  .path-input::placeholder { color: var(--muted); }
+  .load-btn {
+    background: var(--accent);
+    color: #000;
+    border: none;
+    border-radius: 6px;
+    padding: 7px 16px;
+    font-family: 'Syne', sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 0.2s;
+  }
+  .load-btn:hover { background: var(--accent2); }
+
+  /* ── LAYOUT ── */
+  .layout {
+    display: flex;
+    height: calc(100vh - var(--header-h));
+    margin-top: var(--header-h);
+  }
+
+  /* ── SIDEBAR ── */
+  .sidebar {
+    width: var(--sidebar-w);
+    min-width: var(--sidebar-w);
+    background: var(--bg2);
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+  .sidebar::-webkit-scrollbar { width: 5px; }
+  .sidebar::-webkit-scrollbar-track { background: transparent; }
+  .sidebar::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  /* ── SECTION (folder) ── */
+  .section { border-bottom: 1px solid var(--border); }
+  .section-header {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 14px 16px 12px;
+    cursor: pointer;
+    user-select: none;
+    background: var(--bg2);
+    transition: background 0.15s;
+    position: relative;
+  }
+  .section-header:hover { background: var(--bg3); }
+  .section-header.open { background: var(--bg3); }
+  .section-num {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--accent);
+    font-weight: 500;
+    min-width: 28px;
+    padding-top: 2px;
+    letter-spacing: 0.02em;
+  }
+  .section-info { flex: 1; min-width: 0; }
+  .section-name {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text);
+    line-height: 1.4;
+    word-break: break-word;
+  }
+  .section-meta {
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 4px;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .section-progress-bar {
+    height: 2px;
+    background: var(--border);
+    margin-top: 6px;
+    border-radius: 1px;
+    overflow: hidden;
+  }
+  .section-progress-fill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 1px;
+    transition: width 0.3s;
+  }
+  .chevron {
+    font-size: 10px;
+    color: var(--muted);
+    padding-top: 3px;
+    transition: transform 0.2s;
+    flex-shrink: 0;
+  }
+  .section-header.open .chevron { transform: rotate(180deg); }
+
+  .section-body { display: none; }
+  .section-body.open { display: block; }
+
+  /* Nested sections get indented */
+  .section-body > .section { border-bottom: none; border-top: 1px solid var(--border); }
+  .section-body > .section .section-header { padding-left: 28px; }
+  .section-body > .section .section-body > .section .section-header { padding-left: 44px; }
+
+  /* ── FILE ITEMS ── */
+  .file-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 16px 9px 44px;
+    cursor: pointer;
+    transition: background 0.12s;
+    border-top: 1px solid rgba(255,255,255,0.03);
+  }
+  .file-item:hover { background: rgba(255,255,255,0.04); }
+  .file-item.active { background: rgba(232,160,32,0.1); border-left: 2px solid var(--accent); padding-left: 42px; }
+  .file-item.completed { background: var(--done-bg); }
+  .file-item.completed .file-name { color: var(--muted); text-decoration: line-through; }
+
+  .file-check {
+    width: 16px;
+    height: 16px;
+    border: 1.5px solid var(--border);
+    border-radius: 3px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s;
+    cursor: pointer;
+  }
+  .file-check.done { background: var(--done); border-color: var(--done); }
+  .file-check.done::after { content: '✓'; font-size: 10px; color: #fff; font-weight: 700; }
+
+  .file-icon { font-size: 13px; flex-shrink: 0; }
+  .file-name {
+    font-size: 12.5px;
+    color: var(--text);
+    line-height: 1.4;
+    word-break: break-word;
+    flex: 1;
+  }
+
+  /* Indent file items inside nested sections */
+  .section-body .section-body .file-item { padding-left: 60px; }
+  .section-body .section-body .file-item.active { padding-left: 58px; }
+  .section-body .section-body .section-body .file-item { padding-left: 76px; }
+
+  /* ── MAIN CONTENT ── */
+  .main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg);
+    overflow: hidden;
+  }
+
+  .player-wrap {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    gap: 0;
+  }
+
+  .empty-state {
+    text-align: center;
+    color: var(--muted);
+  }
+  .empty-state .big { font-size: 48px; margin-bottom: 16px; }
+  .empty-state p { font-size: 14px; line-height: 1.6; }
+  .empty-state code {
+    font-family: 'JetBrains Mono', monospace;
+    background: var(--bg3);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 12px;
+    color: var(--accent);
+  }
+
+  .video-container { width: 100%; max-width: 1000px; }
+  video {
+    width: 100%;
+    border-radius: 8px;
+    background: #000;
+    outline: none;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+  }
+
+  .video-title-bar {
+    width: 100%;
+    max-width: 1000px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 4px;
+    gap: 12px;
+  }
+  .video-title {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text);
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .mark-done-btn {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 6px;
+    padding: 6px 14px;
+    font-family: 'Syne', sans-serif;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all 0.15s;
+    flex-shrink: 0;
+  }
+  .mark-done-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .mark-done-btn.done { background: var(--done-bg); border-color: var(--done); color: #5cb880; }
+
+  /* ── PDF / TEXT VIEWER ── */
+  .pdf-frame {
+    width: 100%;
+    max-width: 1000px;
+    height: calc(100vh - var(--header-h) - 80px);
+    border: none;
+    border-radius: 8px;
+    background: #fff;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+  }
+  .text-wrap {
+    width: 100%;
+    max-width: 1000px;
+    height: calc(100vh - var(--header-h) - 80px);
+    overflow-y: auto;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 28px 32px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+  }
+  .text-wrap::-webkit-scrollbar { width: 5px; }
+  .text-wrap::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  .text-content {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    line-height: 1.8;
+    color: var(--text);
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  /* ── ERROR TOAST ── */
+  .toast {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    background: #3a1010;
+    border: 1px solid #7a2020;
+    color: #f08080;
+    padding: 10px 16px;
+    border-radius: 8px;
+    font-size: 13px;
+    opacity: 0;
+    transition: opacity 0.3s;
+    z-index: 999;
+    pointer-events: none;
+  }
+  .toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<header>
+  <div class="logo">COURSE<span>VIEWER</span></div>
+  <input class="path-input" id="pathInput" type="text" placeholder="Paste absolute folder path here  e.g. /home/user/courses/javascript" />
+  <button class="load-btn" id="loadBtn">LOAD</button>
+</header>
+
+<!-- LAYOUT -->
+<div class="layout">
+  <!-- SIDEBAR -->
+  <div class="sidebar" id="sidebar">
+    <div id="tree"></div>
+  </div>
+
+  <!-- MAIN -->
+  <div class="main">
+    <div class="player-wrap" id="playerWrap">
+      <div class="empty-state">
+        <div class="big">📂</div>
+        <p>Paste a folder path above and click <strong>LOAD</strong><br/>to browse your course files.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ── State ─────────────────────────────────────────────────────────────────────
+let state = {
+  root:     null,
+  progress: {},     // filePath → bool
+  active:   null,   // currently playing file path
+};
+
+// ── Utilities ─────────────────────────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+
+function showToast(msg) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+function iconFor(fileType) {
+  return fileType === 'video' ? '▶' : fileType === 'pdf' ? '📄' : '📝';
+}
+
+// ── Progress helpers ──────────────────────────────────────────────────────────
+async function saveProgress(filePath, completed) {
+  state.progress[filePath] = completed;
+  await fetch('/api/progress', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ root: state.root, filePath, completed }),
+  });
+  refreshProgressBars();
+}
+
+// Count all files and completed files in a subtree
+function countFiles(items) {
+  let total = 0, done = 0;
+  for (const item of items) {
+    if (item.type === 'file') {
+      total++;
+      if (state.progress[item.path]) done++;
+    } else if (item.type === 'folder') {
+      const sub = countFiles(item.children);
+      total += sub.total;
+      done  += sub.done;
+    }
+  }
+  return { total, done };
+}
+
+function refreshProgressBars() {
+  document.querySelectorAll('[data-section-path]').forEach(el => {
+    const items = JSON.parse(el.dataset.sectionItems);
+    const { total, done } = countFiles(items);
+    const fill  = el.querySelector('.section-progress-fill');
+    const meta  = el.querySelector('.section-meta');
+    const pct   = total === 0 ? 0 : Math.round((done / total) * 100);
+    if (fill) fill.style.width = `${pct}%`;
+    if (meta) meta.textContent = `${done} / ${total}`;
+  });
+  // Refresh file item classes
+  document.querySelectorAll('[data-file-path]').forEach(el => {
+    const fp   = el.dataset.filePath;
+    const done = state.progress[fp];
+    el.classList.toggle('completed', !!done);
+    const chk  = el.querySelector('.file-check');
+    if (chk) chk.classList.toggle('done', !!done);
+  });
+  // Refresh mark-done button
+  if (state.active) {
+    const btn = document.querySelector('.mark-done-btn');
+    if (btn) {
+      const done = state.progress[state.active];
+      btn.textContent = done ? '✓ Completed' : 'Mark Complete';
+      btn.classList.toggle('done', !!done);
+    }
+  }
+}
+
+// ── Player ────────────────────────────────────────────────────────────────────
+// Formats the browser plays natively without transcoding
+const NATIVE_EXTS = new Set(['.mp4', '.webm', '.m4v']);
+
+function playVideo(filePath, fileName) {
+  state.active = filePath;
+  const wrap = $('playerWrap');
+  const done = !!state.progress[filePath];
+  const ext  = filePath.slice(filePath.lastIndexOf('.')).toLowerCase();
+  const needsTranscode = !NATIVE_EXTS.has(ext);
+
+  wrap.innerHTML = `
+    <div class="video-title-bar">
+      <div class="video-title">${escHtml(fileName)}</div>
+      <button class="mark-done-btn ${done ? 'done' : ''}" id="markDoneBtn">
+        ${done ? '✓ Completed' : 'Mark Complete'}
+      </button>
+    </div>
+    <div class="video-container">
+      <video id="videoEl" controls autoplay>
+        <source src="${needsTranscode
+          ? `/api/transcode?file=${encodeURIComponent(filePath)}`
+          : `/api/video?file=${encodeURIComponent(filePath)}`
+        }" type="video/mp4" />
+        Your browser does not support this video format.
+      </video>
+    </div>
+    ${needsTranscode ? `<div id="transcodeNote" style="color:var(--muted);font-size:11px;font-family:'JetBrains Mono',monospace;margin-top:6px;max-width:1000px;">⚡ Transcoding via ffmpeg — seeking restarts stream from that point</div>` : ''}
+  `;
+
+  document.querySelectorAll('.file-item').forEach(el => {
+    el.classList.toggle('active', el.dataset.filePath === filePath);
+  });
+
+  const vid = $('videoEl');
+
+  // For transcoded streams, seeking means a new ffmpeg process from that time
+  if (needsTranscode) {
+    let seekTimer = null;
+    vid.addEventListener('seeking', () => {
+      clearTimeout(seekTimer);
+      seekTimer = setTimeout(() => {
+        const t   = Math.floor(vid.currentTime);
+        const src = `/api/transcode?file=${encodeURIComponent(filePath)}&t=${t}`;
+        vid.src = src;
+        vid.load();
+        vid.play().catch(() => {});
+      }, 400); // debounce: wait until user stops scrubbing
+    });
+  }
+
+  vid.addEventListener('ended', () => saveProgress(filePath, true));
+
+  $('markDoneBtn').addEventListener('click', () => {
+    saveProgress(filePath, !state.progress[filePath]);
+  });
+}
+
+function openPdf(filePath, fileName) {
+  state.active = filePath;
+  const wrap = $('playerWrap');
+  const done = !!state.progress[filePath];
+  wrap.innerHTML = `
+    <div class="video-title-bar">
+      <div class="video-title">📄 ${escHtml(fileName)}</div>
+      <button class="mark-done-btn ${done ? 'done' : ''}" id="markDoneBtn">
+        ${done ? '✓ Completed' : 'Mark Complete'}
+      </button>
+    </div>
+    <iframe class="pdf-frame" src="/api/file?file=${encodeURIComponent(filePath)}"></iframe>
+  `;
+  document.querySelectorAll('.file-item').forEach(el =>
+    el.classList.toggle('active', el.dataset.filePath === filePath));
+  $('markDoneBtn').addEventListener('click', () =>
+    saveProgress(filePath, !state.progress[filePath]));
+}
+
+function openText(filePath, fileName) {
+  state.active = filePath;
+  const wrap = $('playerWrap');
+  const done = !!state.progress[filePath];
+  wrap.innerHTML = `
+    <div class="video-title-bar">
+      <div class="video-title">📝 ${escHtml(fileName)}</div>
+      <button class="mark-done-btn ${done ? 'done' : ''}" id="markDoneBtn">
+        ${done ? '✓ Completed' : 'Mark Complete'}
+      </button>
+    </div>
+    <div class="text-wrap"><pre class="text-content">Loading…</pre></div>
+  `;
+  document.querySelectorAll('.file-item').forEach(el =>
+    el.classList.toggle('active', el.dataset.filePath === filePath));
+  $('markDoneBtn').addEventListener('click', () =>
+    saveProgress(filePath, !state.progress[filePath]));
+
+  fetch(`/api/file?file=${encodeURIComponent(filePath)}`)
+    .then(r => r.text())
+    .then(txt => { wrap.querySelector('.text-content').textContent = txt; })
+    .catch(() => { wrap.querySelector('.text-content').textContent = 'Failed to load file.'; });
+}
+
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── Tree renderer ─────────────────────────────────────────────────────────────
+function renderItems(items, container) {
+  for (const item of items) {
+    if (item.type === 'folder') {
+      const { total, done } = countFiles(item.children);
+      const pct = total === 0 ? 0 : Math.round((done / total) * 100);
+
+      const section = document.createElement('div');
+      section.className = 'section';
+
+      const header = document.createElement('div');
+      header.className = 'section-header';
+      header.dataset.sectionPath  = item.path;
+      header.dataset.sectionItems = JSON.stringify(item.children);
+      header.innerHTML = `
+        <div class="section-num">${escHtml(item.number)}</div>
+        <div class="section-info">
+          <div class="section-name">${escHtml(item.name)}</div>
+          <div class="section-meta">${done} / ${total}</div>
+          <div class="section-progress-bar">
+            <div class="section-progress-fill" style="width:${pct}%"></div>
+          </div>
+        </div>
+        <div class="chevron">▾</div>
+      `;
+
+      const body = document.createElement('div');
+      body.className = 'section-body';
+
+      header.addEventListener('click', () => {
+        header.classList.toggle('open');
+        body.classList.toggle('open');
+      });
+
+      renderItems(item.children, body);
+
+      section.appendChild(header);
+      section.appendChild(body);
+      container.appendChild(section);
+
+    } else if (item.type === 'file') {
+      const done = !!state.progress[item.path];
+      const el   = document.createElement('div');
+      el.className   = `file-item${done ? ' completed' : ''}`;
+      el.dataset.filePath = item.path;
+      el.innerHTML = `
+        <div class="file-check${done ? ' done' : ''}"></div>
+        <span class="file-icon">${iconFor(item.fileType)}</span>
+        <span class="file-name">${escHtml(item.name)}</span>
+      `;
+
+      // Checkbox click: toggle completed without opening
+      el.querySelector('.file-check').addEventListener('click', e => {
+        e.stopPropagation();
+        saveProgress(item.path, !state.progress[item.path]);
+      });
+
+      // Row click: open/play
+      el.addEventListener('click', () => {
+        if (item.fileType === 'video') {
+          playVideo(item.path, item.name);
+        } else if (item.fileType === 'pdf') {
+          openPdf(item.path, item.name);
+        } else if (item.fileType === 'text') {
+          openText(item.path, item.name);
+        }
+      });
+
+      container.appendChild(el);
+    }
+  }
+}
+
+// ── Load ──────────────────────────────────────────────────────────────────────
+async function loadRoot(rootPath) {
+  rootPath = rootPath.trim();
+  if (!rootPath) return;
+
+  $('tree').innerHTML = '<div style="padding:20px;color:var(--muted);font-size:13px;">Scanning…</div>';
+  $('playerWrap').innerHTML = '';
+
+  try {
+    const [treeRes, progRes] = await Promise.all([
+      fetch(`/api/tree?root=${encodeURIComponent(rootPath)}`),
+      fetch(`/api/progress?root=${encodeURIComponent(rootPath)}`),
+    ]);
+
+    if (!treeRes.ok) {
+      const err = await treeRes.json();
+      showToast(err.error || 'Failed to load');
+      $('tree').innerHTML = '';
+      return;
+    }
+
+    const { root, tree } = await treeRes.json();
+    const progress        = await progRes.json();
+
+    state.root     = root;
+    state.progress = progress;
+    state.active   = null;
+
+    $('tree').innerHTML = '';
+    renderItems(tree, $('tree'));
+
+    if (tree.length === 0) {
+      $('tree').innerHTML = '<div style="padding:20px;color:var(--muted);font-size:13px;">No supported files found.</div>';
+    }
+
+    // Reset player
+    $('playerWrap').innerHTML = `
+      <div class="empty-state">
+        <div class="big">🎬</div>
+        <p>Select a video from the sidebar to start watching.<br/>PDFs and text files open in your system app.</p>
+      </div>
+    `;
+
+    // Save path for next session
+    localStorage.setItem('lastPath', rootPath);
+
+  } catch (err) {
+    showToast('Network error: ' + err.message);
+    $('tree').innerHTML = '';
+  }
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+$('loadBtn').addEventListener('click', () => loadRoot($('pathInput').value));
+$('pathInput').addEventListener('keydown', e => { if (e.key === 'Enter') loadRoot($('pathInput').value); });
+
+// Restore last used path
+const last = localStorage.getItem('lastPath');
+if (last) {
+  $('pathInput').value = last;
+  loadRoot(last);
+}
+</script>
+</body>
+</html>
