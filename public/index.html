@@ -170,7 +170,7 @@ function Section({ item, progress, active, onSelect, onToggle, depth }) {
   );
 }
 
-function Player({ activeItem, progress, onToggle, root }) {
+function Player({ activeItem, progress, onToggle, root, autoplay }) {
   const videoRef    = useRef(null);
   const seekTimer   = useRef(null);
   const saveTimer   = useRef(null);
@@ -273,7 +273,18 @@ function Player({ activeItem, progress, onToggle, root }) {
           {markBtn}
         </div>
         <div className="video-container">
-          <video ref={videoRef} controls autoPlay key={activeItem.path}
+          <video ref={videoRef} controls key={activeItem.path}
+            autoPlay={autoplay}
+            onPause={() => {
+              const vid = videoRef.current;
+              if (!vid || vid.currentTime < 2) return;
+              lastSaved.current = Date.now();
+              fetch('/api/position', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ root, filePath: normPath(activeItem.path), position: vid.currentTime }),
+              }).catch(() => {});
+            }}
             onEnded={() => { onToggle(fp, true); fetch('/api/position', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ root, filePath: normPath(activeItem.path), position: 0 }) }).catch(()=>{}); }}
             onTimeUpdate={handleTimeUpdate}
             onSeeking={handleSeeking}>
@@ -344,10 +355,20 @@ function App() {
   const [activeItem, setActiveItem] = useState(null);
   const [toastKey, setToastKey] = useState(0);
   const [toastMsg, setToastMsg] = useState('');
+  const [settings, setSettings] = useState({ autoplay: 'false' });
+  const [showSettings, setShowSettings] = useState(false);
 
   function showToast(msg) { setToastMsg(msg); setToastKey(k => k + 1); }
 
-  useEffect(() => { if (pathVal) load(pathVal); }, []);
+  useEffect(() => {
+    fetch('/api/settings').then(r => r.json()).then(s => setSettings(s)).catch(() => {});
+    if (pathVal) load(pathVal);
+    function closeSettings(e) {
+      if (!e.target.closest('.settings-wrap')) setShowSettings(false);
+    }
+    document.addEventListener('mousedown', closeSettings);
+    return () => document.removeEventListener('mousedown', closeSettings);
+  }, []);
 
   async function load(p) {
     p = (p || '').trim();
@@ -388,6 +409,18 @@ function App() {
     setActiveItem(item);
   }
 
+  async function saveSetting(key, value) {
+    setSettings(prev => ({ ...prev, [key]: value }));
+    setShowSettings(false);
+    await fetch('/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key, value }),
+    }).catch(() => {});
+  }
+
+  const autoplay = settings.autoplay === 'true';
+
   return (
     <>
       <header className="header">
@@ -399,6 +432,28 @@ function App() {
         <button className="load-btn" onClick={() => load(pathVal)} disabled={loading}>
           {loading ? '…' : 'LOAD'}
         </button>
+        <div className="settings-wrap" style={{position:'relative',flexShrink:0}}>
+          <button className="load-btn" style={{background:'var(--bg3)',color:'var(--text)',border:'1px solid var(--border)'}}
+            onClick={() => setShowSettings(s => !s)}>⚙</button>
+          {showSettings && (
+            <div style={{position:'absolute',right:0,top:'calc(100% + 8px)',background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:'8px',padding:'12px 16px',minWidth:'220px',zIndex:200,boxShadow:'0 8px 32px rgba(0,0,0,0.5)'}}>
+              <div style={{fontSize:'11px',color:'var(--muted)',fontFamily:'JetBrains Mono,monospace',marginBottom:'10px',letterSpacing:'.04em'}}>SETTINGS</div>
+              <div style={{fontSize:'13px',color:'var(--text)',marginBottom:'8px',fontWeight:600}}>Video Playback</div>
+              <div style={{display:'flex',flexDirection:'column',gap:'6px'}}>
+                <label style={{display:'flex',alignItems:'center',gap:'8px',cursor:'pointer',fontSize:'13px',color: autoplay ? 'var(--accent)' : 'var(--text)'}}>
+                  <input type="radio" name="autoplay" checked={autoplay} onChange={() => saveSetting('autoplay','true')}
+                    style={{accentColor:'var(--accent)'}}/>
+                  Autoplay on open
+                </label>
+                <label style={{display:'flex',alignItems:'center',gap:'8px',cursor:'pointer',fontSize:'13px',color: !autoplay ? 'var(--accent)' : 'var(--text)'}}>
+                  <input type="radio" name="autoplay" checked={!autoplay} onChange={() => saveSetting('autoplay','false')}
+                    style={{accentColor:'var(--accent)'}}/>
+                  Start paused
+                </label>
+              </div>
+            </div>
+          )}
+        </div>
       </header>
       <div className="layout">
         <div className="sidebar">
@@ -412,7 +467,7 @@ function App() {
           )}
         </div>
         <div className="main">
-          <Player activeItem={activeItem} progress={progress} onToggle={handleToggle} root={root}/>
+          <Player activeItem={activeItem} progress={progress} onToggle={handleToggle} root={root} autoplay={autoplay}/>
         </div>
       </div>
       {toastMsg && <div key={toastKey} className="toast">{toastMsg}</div>}

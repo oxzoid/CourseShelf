@@ -28,6 +28,12 @@ db.exec(`
     PRIMARY KEY (root, file_path)
   )
 `);
+db.exec(`
+  CREATE TABLE IF NOT EXISTS settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  )
+`);
 
 // ── File type helpers ─────────────────────────────────────────────────────────
 const VIDEO_EXTS = new Set(['.mp4', '.mkv', '.webm', '.avi', '.mov', '.m4v', '.wmv', '.flv']);
@@ -140,6 +146,25 @@ app.post('/api/position', (req, res) => {
     ON CONFLICT(root, file_path) DO UPDATE
       SET position = excluded.position, updated_at = excluded.updated_at
   `).run(root, filePath, position);
+  res.json({ ok: true });
+});
+
+// ── API: get all settings ─────────────────────────────────────────────────────
+app.get('/api/settings', (req, res) => {
+  const rows = db.prepare('SELECT key, value FROM settings').all();
+  const map = {};
+  rows.forEach(r => { map[r.key] = r.value; });
+  res.json(map);
+});
+
+// ── API: save a setting ───────────────────────────────────────────────────────
+app.post('/api/settings', (req, res) => {
+  const { key, value } = req.body;
+  if (!key || value == null) return res.status(400).json({ error: 'Missing fields' });
+  db.prepare(`
+    INSERT INTO settings (key, value) VALUES (?, ?)
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value
+  `).run(key, String(value));
   res.json({ ok: true });
 });
 
