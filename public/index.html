@@ -201,6 +201,20 @@ function Player({ activeItem, progress, onToggle, root }) {
     }
   }, [activeItem?.path]);
 
+  useEffect(() => {
+    if (activeItem?.fileType !== 'video') return;
+    function onKey(e) {
+      if (e.key === 'f' || e.key === 'F') {
+        const vid = videoRef.current;
+        if (!vid) return;
+        if (document.fullscreenElement) document.exitFullscreen();
+        else vid.requestFullscreen();
+      }
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [activeItem?.path]);
+
   if (!activeItem) {
     return (
       <div className="player-wrap">
