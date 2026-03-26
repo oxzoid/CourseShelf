@@ -10,31 +10,62 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 // ── SQLite setup ──────────────────────────────────────────────────────────────
 const db = new Database(path.join(__dirname, 'progress.db'));
+db.pragma('journal_mode = WAL');   // faster writes, better concurrency
+db.pragma('synchronous = NORMAL'); // safe with WAL, much faster than FULL
+db.pragma('foreign_keys = ON');
 db.exec(`
+  -- Parent: one row per unique root folder
+  CREATE TABLE IF NOT EXISTS folders (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    root       TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  -- Child: completion state per file, FK → folders
   CREATE TABLE IF NOT EXISTS progress (
-    root      TEXT NOT NULL,
-    file_path TEXT NOT NULL,
-    completed INTEGER NOT NULL DEFAULT 0,
-    updated_at TEXT NOT NULL,
-    PRIMARY KEY (root, file_path)
-  )
-`);
-db.exec(`
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    folder_id  INTEGER NOT NULL REFERENCES folders(id) ON DELETE CASCADE,
+    file_path  TEXT NOT NULL,
+    completed  INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(folder_id, file_path)
+  );
+
+  -- Child: video resume position per file, FK → folders
   CREATE TABLE IF NOT EXISTS video_positions (
-    root      TEXT NOT NULL,
-    file_path TEXT NOT NULL,
-    position  REAL NOT NULL DEFAULT 0,
-    updated_at TEXT NOT NULL,
-    PRIMARY KEY (root, file_path)
-  )
-`);
-db.exec(`
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    folder_id  INTEGER NOT NULL REFERENCES folders(id) ON DELETE CASCADE,
+    file_path  TEXT NOT NULL,
+    position   REAL NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(folder_id, file_path)
+  );
+
+  -- Child: last opened file per folder, FK → folders
   CREATE TABLE IF NOT EXISTS last_active (
-    root      TEXT PRIMARY KEY,
-    file_path TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-  )
+    folder_id  INTEGER PRIMARY KEY REFERENCES folders(id) ON DELETE CASCADE,
+    file_path  TEXT NOT NULL,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  -- Indexes for fast lookups by folder_id
+  CREATE INDEX IF NOT EXISTS idx_progress_folder       ON progress(folder_id);
+  CREATE INDEX IF NOT EXISTS idx_video_positions_folder ON video_positions(folder_id);
+
+  CREATE TABLE IF NOT EXISTS settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  );
 `);
+
+// ── Helper: get or create folder row, return id ───────────────────────────────
+function getFolderId(root) {
+  db.prepare(`
+    INSERT INTO folders (root) VALUES (?)
+    ON CONFLICT(root) DO NOTHING
+  `).run(root);
+  return db.prepare('SELECT id FROM folders WHERE root = ?').get(root).id;
+}
 
 // ── File type helpers ─────────────────────────────────────────────────────────
 const VIDEO_EXTS = new Set(['.mp4', '.mkv', '.webm', '.avi', '.mov', '.m4v', '.wmv', '.flv']);
@@ -107,7 +138,8 @@ app.get('/api/tree', (req, res) => {
 app.get('/api/progress', (req, res) => {
   const root = req.query.root;
   if (!root) return res.status(400).json({ error: 'Missing root' });
-  const rows = db.prepare('SELECT file_path, completed FROM progress WHERE root = ?').all(root);
+  const folderId = getFolderId(root);
+  const rows = db.prepare('SELECT file_path, completed FROM progress WHERE folder_id = ?').all(folderId);
   const map  = {};
   rows.forEach(r => { map[r.file_path.replace(/\\/g, '/')] = r.completed === 1; });
   res.json(map);
@@ -117,13 +149,14 @@ app.get('/api/progress', (req, res) => {
 app.post('/api/progress', (req, res) => {
   let { root, filePath, completed } = req.body;
   if (!root || !filePath) return res.status(400).json({ error: 'Missing fields' });
-  filePath = filePath.replace(/\\/g, '/');  // normalize before storing
+  filePath = filePath.replace(/\\/g, '/');
+  const folderId = getFolderId(root);
   db.prepare(`
-    INSERT INTO progress (root, file_path, completed, updated_at)
+    INSERT INTO progress (folder_id, file_path, completed, updated_at)
     VALUES (?, ?, ?, datetime('now'))
-    ON CONFLICT(root, file_path) DO UPDATE
+    ON CONFLICT(folder_id, file_path) DO UPDATE
       SET completed = excluded.completed, updated_at = excluded.updated_at
-  `).run(root, filePath, completed ? 1 : 0);
+  `).run(folderId, filePath, completed ? 1 : 0);
   res.json({ ok: true });
 });
 
@@ -132,7 +165,8 @@ app.get('/api/position', (req, res) => {
   let { root, file } = req.query;
   if (!root || !file) return res.status(400).json({ error: 'Missing fields' });
   file = file.replace(/\\/g, '/');
-  const row = db.prepare('SELECT position FROM video_positions WHERE root = ? AND file_path = ?').get(root, file);
+  const folderId = getFolderId(root);
+  const row = db.prepare('SELECT position FROM video_positions WHERE folder_id = ? AND file_path = ?').get(folderId, file);
   res.json({ position: row ? row.position : 0 });
 });
 
@@ -141,12 +175,13 @@ app.post('/api/position', (req, res) => {
   let { root, filePath, position } = req.body;
   if (!root || !filePath || position == null) return res.status(400).json({ error: 'Missing fields' });
   filePath = filePath.replace(/\\/g, '/');
+  const folderId = getFolderId(root);
   db.prepare(`
-    INSERT INTO video_positions (root, file_path, position, updated_at)
+    INSERT INTO video_positions (folder_id, file_path, position, updated_at)
     VALUES (?, ?, ?, datetime('now'))
-    ON CONFLICT(root, file_path) DO UPDATE
+    ON CONFLICT(folder_id, file_path) DO UPDATE
       SET position = excluded.position, updated_at = excluded.updated_at
-  `).run(root, filePath, position);
+  `).run(folderId, filePath, position);
   res.json({ ok: true });
 });
 
@@ -173,7 +208,8 @@ app.post('/api/settings', (req, res) => {
 app.get('/api/last-active', (req, res) => {
   const root = req.query.root;
   if (!root) return res.status(400).json({ error: 'Missing root' });
-  const row = db.prepare('SELECT file_path FROM last_active WHERE root = ?').get(root);
+  const folderId = getFolderId(root);
+  const row = db.prepare('SELECT file_path FROM last_active WHERE folder_id = ?').get(folderId);
   res.json({ filePath: row ? row.file_path : null });
 });
 
@@ -182,12 +218,13 @@ app.post('/api/last-active', (req, res) => {
   let { root, filePath } = req.body;
   if (!root || !filePath) return res.status(400).json({ error: 'Missing fields' });
   filePath = filePath.replace(/\\/g, '/');
+  const folderId = getFolderId(root);
   db.prepare(`
-    INSERT INTO last_active (root, file_path, updated_at)
+    INSERT INTO last_active (folder_id, file_path, updated_at)
     VALUES (?, ?, datetime('now'))
-    ON CONFLICT(root) DO UPDATE
+    ON CONFLICT(folder_id) DO UPDATE
       SET file_path = excluded.file_path, updated_at = excluded.updated_at
-  `).run(root, filePath);
+  `).run(folderId, filePath);
   res.json({ ok: true });
 });
 
