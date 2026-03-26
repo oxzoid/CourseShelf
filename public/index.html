@@ -170,9 +170,11 @@ function Section({ item, progress, active, onSelect, onToggle, depth }) {
   );
 }
 
-function Player({ activeItem, progress, onToggle }) {
-  const videoRef = useRef(null);
-  const seekTimer = useRef(null);
+function Player({ activeItem, progress, onToggle, root }) {
+  const videoRef    = useRef(null);
+  const seekTimer   = useRef(null);
+  const saveTimer   = useRef(null);
+  const lastSaved   = useRef(0);
   const [textContent, setTextContent] = useState('');
 
   useEffect(() => {
@@ -181,6 +183,21 @@ function Player({ activeItem, progress, onToggle }) {
       fetch('/api/file?file=' + encodeURIComponent(activeItem.path))
         .then(r => r.text()).then(setTextContent)
         .catch(() => setTextContent('Failed to load file.'));
+    }
+    // On video change, fetch saved position and seek to it once ready
+    if (activeItem?.fileType === 'video') {
+      lastSaved.current = 0;
+      fetch('/api/position?root=' + encodeURIComponent(root) + '&file=' + encodeURIComponent(normPath(activeItem.path)))
+        .then(r => r.json())
+        .then(({ position }) => {
+          if (!position || position < 2) return;
+          const vid = videoRef.current;
+          if (!vid) return;
+          const seek = () => { vid.currentTime = position; vid.removeEventListener('loadedmetadata', seek); };
+          if (vid.readyState >= 1) { vid.currentTime = position; }
+          else { vid.addEventListener('loadedmetadata', seek); }
+        })
+        .catch(() => {});
     }
   }, [activeItem?.path]);
 
@@ -210,6 +227,19 @@ function Player({ activeItem, progress, onToggle }) {
       ? '/api/transcode?file=' + encodeURIComponent(activeItem.path)
       : '/api/video?file=' + encodeURIComponent(activeItem.path);
 
+    function handleTimeUpdate() {
+      const now = Date.now();
+      if (now - lastSaved.current < 5000) return;
+      const vid = videoRef.current;
+      if (!vid || vid.ended || vid.currentTime < 2) return;
+      lastSaved.current = now;
+      fetch('/api/position', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ root, filePath: normPath(activeItem.path), position: vid.currentTime }),
+      }).catch(() => {});
+    }
+
     function handleSeeking() {
       if (!needsTranscode) return;
       clearTimeout(seekTimer.current);
@@ -230,7 +260,9 @@ function Player({ activeItem, progress, onToggle }) {
         </div>
         <div className="video-container">
           <video ref={videoRef} controls autoPlay key={activeItem.path}
-            onEnded={() => onToggle(fp, true)} onSeeking={handleSeeking}>
+            onEnded={() => { onToggle(fp, true); fetch('/api/position', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ root, filePath: normPath(activeItem.path), position: 0 }) }).catch(()=>{}); }}
+            onTimeUpdate={handleTimeUpdate}
+            onSeeking={handleSeeking}>
             <source src={baseSrc} type="video/mp4"/>
           </video>
         </div>
@@ -366,7 +398,7 @@ function App() {
           )}
         </div>
         <div className="main">
-          <Player activeItem={activeItem} progress={progress} onToggle={handleToggle}/>
+          <Player activeItem={activeItem} progress={progress} onToggle={handleToggle} root={root}/>
         </div>
       </div>
       {toastMsg && <div key={toastKey} className="toast">{toastMsg}</div>}

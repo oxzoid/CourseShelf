@@ -19,6 +19,15 @@ db.exec(`
     PRIMARY KEY (root, file_path)
   )
 `);
+db.exec(`
+  CREATE TABLE IF NOT EXISTS video_positions (
+    root      TEXT NOT NULL,
+    file_path TEXT NOT NULL,
+    position  REAL NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (root, file_path)
+  )
+`);
 
 // ── File type helpers ─────────────────────────────────────────────────────────
 const VIDEO_EXTS = new Set(['.mp4', '.mkv', '.webm', '.avi', '.mov', '.m4v', '.wmv', '.flv']);
@@ -108,6 +117,29 @@ app.post('/api/progress', (req, res) => {
     ON CONFLICT(root, file_path) DO UPDATE
       SET completed = excluded.completed, updated_at = excluded.updated_at
   `).run(root, filePath, completed ? 1 : 0);
+  res.json({ ok: true });
+});
+
+// ── API: get saved video position ────────────────────────────────────────────
+app.get('/api/position', (req, res) => {
+  let { root, file } = req.query;
+  if (!root || !file) return res.status(400).json({ error: 'Missing fields' });
+  file = file.replace(/\\/g, '/');
+  const row = db.prepare('SELECT position FROM video_positions WHERE root = ? AND file_path = ?').get(root, file);
+  res.json({ position: row ? row.position : 0 });
+});
+
+// ── API: save video position ──────────────────────────────────────────────────
+app.post('/api/position', (req, res) => {
+  let { root, filePath, position } = req.body;
+  if (!root || !filePath || position == null) return res.status(400).json({ error: 'Missing fields' });
+  filePath = filePath.replace(/\\/g, '/');
+  db.prepare(`
+    INSERT INTO video_positions (root, file_path, position, updated_at)
+    VALUES (?, ?, ?, datetime('now'))
+    ON CONFLICT(root, file_path) DO UPDATE
+      SET position = excluded.position, updated_at = excluded.updated_at
+  `).run(root, filePath, position);
   res.json({ ok: true });
 });
 
