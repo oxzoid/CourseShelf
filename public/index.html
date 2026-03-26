@@ -422,7 +422,7 @@ function refreshProgressBars() {
   });
   // Refresh file item classes
   document.querySelectorAll('[data-file-path]').forEach(el => {
-    const fp   = el.dataset.filePath;
+    const fp   = el.getAttribute('data-file-path');
     const done = state.progress[fp];
     el.classList.toggle('completed', !!done);
     const chk  = el.querySelector('.file-check');
@@ -591,8 +591,8 @@ function renderItems(items, container) {
       const fp   = item.path.replace(/\\/g, '/');  // normalize for consistent keys
       const done = !!state.progress[fp];
       const el   = document.createElement('div');
-      el.className   = `file-item${done ? ' completed' : ''}`;
-      el.dataset.filePath = fp;
+      el.className = `file-item${done ? ' completed' : ''}`;
+      el.setAttribute('data-file-path', fp);
       el.innerHTML = `
         <div class="file-check${done ? ' done' : ''}"></div>
         <span class="file-icon">${iconFor(item.fileType)}</span>
@@ -602,7 +602,8 @@ function renderItems(items, container) {
       // Checkbox click: toggle completed without opening
       el.querySelector('.file-check').addEventListener('click', e => {
         e.stopPropagation();
-        saveProgress(fp, !state.progress[fp]);
+        const key = el.getAttribute('data-file-path');
+        saveProgress(key, !state.progress[key]);
       });
 
       // Row click: open/play
