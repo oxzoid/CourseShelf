@@ -93,14 +93,15 @@ app.get('/api/progress', (req, res) => {
   if (!root) return res.status(400).json({ error: 'Missing root' });
   const rows = db.prepare('SELECT file_path, completed FROM progress WHERE root = ?').all(root);
   const map  = {};
-  rows.forEach(r => { map[r.file_path] = r.completed === 1; });
+  rows.forEach(r => { map[r.file_path.replace(/\\/g, '/')] = r.completed === 1; });
   res.json(map);
 });
 
 // ── API: set progress for one file ────────────────────────────────────────────
 app.post('/api/progress', (req, res) => {
-  const { root, filePath, completed } = req.body;
+  let { root, filePath, completed } = req.body;
   if (!root || !filePath) return res.status(400).json({ error: 'Missing fields' });
+  filePath = filePath.replace(/\\/g, '/');  // normalize before storing
   db.prepare(`
     INSERT INTO progress (root, file_path, completed, updated_at)
     VALUES (?, ?, ?, datetime('now'))

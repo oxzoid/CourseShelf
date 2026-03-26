@@ -384,6 +384,7 @@ function iconFor(fileType) {
 
 // ── Progress helpers ──────────────────────────────────────────────────────────
 async function saveProgress(filePath, completed) {
+  filePath = filePath.replace(/\\/g, '/');
   state.progress[filePath] = completed;
   await fetch('/api/progress', {
     method: 'POST',
@@ -443,6 +444,7 @@ function refreshProgressBars() {
 const NATIVE_EXTS = new Set(['.mp4', '.webm', '.m4v']);
 
 function playVideo(filePath, fileName) {
+  filePath = filePath.replace(/\\/g, '/');
   state.active = filePath;
   const wrap = $('playerWrap');
   const done = !!state.progress[filePath];
@@ -497,6 +499,7 @@ function playVideo(filePath, fileName) {
 }
 
 function openPdf(filePath, fileName) {
+  filePath = filePath.replace(/\\/g, '/');
   state.active = filePath;
   const wrap = $('playerWrap');
   const done = !!state.progress[filePath];
@@ -516,6 +519,7 @@ function openPdf(filePath, fileName) {
 }
 
 function openText(filePath, fileName) {
+  filePath = filePath.replace(/\\/g, '/');
   state.active = filePath;
   const wrap = $('playerWrap');
   const done = !!state.progress[filePath];
@@ -584,10 +588,11 @@ function renderItems(items, container) {
       container.appendChild(section);
 
     } else if (item.type === 'file') {
-      const done = !!state.progress[item.path];
+      const fp   = item.path.replace(/\\/g, '/');  // normalize for consistent keys
+      const done = !!state.progress[fp];
       const el   = document.createElement('div');
       el.className   = `file-item${done ? ' completed' : ''}`;
-      el.dataset.filePath = item.path;
+      el.dataset.filePath = fp;
       el.innerHTML = `
         <div class="file-check${done ? ' done' : ''}"></div>
         <span class="file-icon">${iconFor(item.fileType)}</span>
@@ -597,7 +602,7 @@ function renderItems(items, container) {
       // Checkbox click: toggle completed without opening
       el.querySelector('.file-check').addEventListener('click', e => {
         e.stopPropagation();
-        saveProgress(item.path, !state.progress[item.path]);
+        saveProgress(fp, !state.progress[fp]);
       });
 
       // Row click: open/play
@@ -638,7 +643,11 @@ async function loadRoot(rootPath) {
     }
 
     const { root, tree } = await treeRes.json();
-    const progress        = await progRes.json();
+    const rawProgress     = await progRes.json();
+
+    // Normalize all keys to forward slashes (Windows safety)
+    const progress = {};
+    Object.keys(rawProgress).forEach(k => { progress[k.replace(/\\/g, '/')] = rawProgress[k]; });
 
     state.root     = root;
     state.progress = progress;
