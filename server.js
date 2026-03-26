@@ -29,9 +29,10 @@ db.exec(`
   )
 `);
 db.exec(`
-  CREATE TABLE IF NOT EXISTS settings (
-    key   TEXT PRIMARY KEY,
-    value TEXT NOT NULL
+  CREATE TABLE IF NOT EXISTS last_active (
+    root      TEXT PRIMARY KEY,
+    file_path TEXT NOT NULL,
+    updated_at TEXT NOT NULL
   )
 `);
 
@@ -165,6 +166,28 @@ app.post('/api/settings', (req, res) => {
     INSERT INTO settings (key, value) VALUES (?, ?)
     ON CONFLICT(key) DO UPDATE SET value = excluded.value
   `).run(key, String(value));
+  res.json({ ok: true });
+});
+
+// ── API: get last active file for a root ─────────────────────────────────────
+app.get('/api/last-active', (req, res) => {
+  const root = req.query.root;
+  if (!root) return res.status(400).json({ error: 'Missing root' });
+  const row = db.prepare('SELECT file_path FROM last_active WHERE root = ?').get(root);
+  res.json({ filePath: row ? row.file_path : null });
+});
+
+// ── API: save last active file for a root ────────────────────────────────────
+app.post('/api/last-active', (req, res) => {
+  let { root, filePath } = req.body;
+  if (!root || !filePath) return res.status(400).json({ error: 'Missing fields' });
+  filePath = filePath.replace(/\\/g, '/');
+  db.prepare(`
+    INSERT INTO last_active (root, file_path, updated_at)
+    VALUES (?, ?, datetime('now'))
+    ON CONFLICT(root) DO UPDATE
+      SET file_path = excluded.file_path, updated_at = excluded.updated_at
+  `).run(root, filePath);
   res.json({ ok: true });
 });
 

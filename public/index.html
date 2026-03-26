@@ -114,6 +114,17 @@ function countFiles(items, progress) {
   return { total, done };
 }
 
+function findItemByPath(items, fp) {
+  for (const item of items) {
+    if (item.type === 'file' && normPath(item.path) === fp) return item;
+    if (item.type === 'folder') {
+      const found = findItemByPath(item.children, fp);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
 function FileItem({ item, progress, active, onSelect, onToggle, depth }) {
   const fp = normPath(item.path);
   const done = !!progress[fp];
@@ -346,7 +357,7 @@ function OverallProgress({ tree, progress }) {
 }
 
 function App() {
-  const [pathVal, setPathVal] = useState(() => localStorage.getItem('lastPath') || '');
+  const [pathVal, setPathVal] = useState('');
   const [loading, setLoading] = useState(false);
   const [tree, setTree] = useState([]);
   const [root, setRoot] = useState(null);
@@ -361,8 +372,10 @@ function App() {
   function showToast(msg) { setToastMsg(msg); setToastKey(k => k + 1); }
 
   useEffect(() => {
-    fetch('/api/settings').then(r => r.json()).then(s => setSettings(s)).catch(() => {});
-    if (pathVal) load(pathVal);
+    fetch('/api/settings').then(r => r.json()).then(s => {
+      setSettings(s);
+      if (s.lastPath) { setPathVal(s.lastPath); load(s.lastPath); }
+    }).catch(() => {});
     function closeSettings(e) {
       if (!e.target.closest('.settings-wrap')) setShowSettings(false);
     }
@@ -385,7 +398,15 @@ function App() {
       const prog = {};
       Object.keys(rawProg).forEach(k => { prog[normPath(k)] = rawProg[k]; });
       setRoot(r); setTree(t); setProgress(prog);
-      localStorage.setItem('lastPath', p);
+      fetch('/api/settings', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ key:'lastPath', value: p }) }).catch(()=>{});
+      // Restore last active file for this root
+      fetch('/api/last-active?root=' + encodeURIComponent(p))
+        .then(r => r.json())
+        .then(({ filePath }) => {
+          if (!filePath) return;
+          const found = findItemByPath(t, filePath);
+          if (found) { setActive(filePath); setActiveItem(found); }
+        }).catch(() => {});
     } catch(e) { showToast('Network error: ' + e.message); }
     finally { setLoading(false); }
   }
@@ -405,8 +426,12 @@ function App() {
   }, [root]);
 
   function handleSelect(item) {
-    setActive(normPath(item.path));
+    const fp = normPath(item.path);
+    setActive(fp);
     setActiveItem(item);
+    if (root) {
+      fetch('/api/last-active', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ root, filePath: fp }) }).catch(()=>{});
+    }
   }
 
   async function saveSetting(key, value) {
