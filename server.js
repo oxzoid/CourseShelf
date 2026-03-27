@@ -68,7 +68,7 @@ function getFolderId(root) {
 }
 
 // ── File type helpers ─────────────────────────────────────────────────────────
-const VIDEO_EXTS = new Set(['.mp4', '.mkv', '.webm', '.avi', '.mov', '.m4v', '.wmv', '.flv', '.ts']);
+const VIDEO_EXTS = new Set(['.mp4', '.mkv', '.webm', '.avi', '.mov', '.m4v', '.wmv', '.flv']);
 const PDF_EXTS   = new Set(['.pdf']);
 const TEXT_EXTS  = new Set(['.txt', '.md', '.markdown']);
 
