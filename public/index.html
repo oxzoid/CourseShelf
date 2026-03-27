@@ -94,6 +94,7 @@ video{width:100%;border-radius:8px;background:#000;outline:none;box-shadow:0 20p
 </head>
 <body>
 <div id="root"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.4.12/hls.min.js"></script>
 <script type="text/babel">
 const { useState, useEffect, useRef, useCallback } = React;
 const NATIVE_EXTS = new Set(['.mp4', '.webm', '.m4v']);
@@ -206,100 +207,173 @@ function Section({ item, progress, active, onSelect, onToggle, depth }) {
   );
 }
 
-function Player({ activeItem, progress, onToggle, onSelect, root, autoplay, tree }) {
-  const videoRef    = useRef(null);
-  const seekTimer   = useRef(null);
-  const saveTimer   = useRef(null);
-  const lastSaved   = useRef(0);
-  const [textContent, setTextContent] = useState('');
 
+function Player({ activeItem, progress, onToggle, onSelect, root, autoplay, tree }) {
+  const videoRef     = useRef(null);
+  const hlsRef       = useRef(null);
+  const pollRef      = useRef(null);
+  const lastSaved    = useRef(0);
+  const savedPosRef  = useRef(0);
+  const [textContent, setTextContent] = useState('');
+  const [hlsStatus,   setHlsStatus]   = useState(null);
+  const [jobId,       setJobId]       = useState(null);
+  const [totalDur,    setTotalDur]    = useState(0); // known duration from ffprobe
+
+  function destroyHls() {
+    if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
+    clearInterval(pollRef.current);
+  }
+
+  // ── Effect 1: start job when video changes ────────────────────────────────
   useEffect(() => {
+    destroyHls();
+    savedPosRef.current = 0;
+    setJobId(null);
+    setHlsStatus(null);
+
     if (activeItem?.fileType === 'text') {
       setTextContent('Loading…');
       fetch('/api/file?file=' + encodeURIComponent(activeItem.path))
         .then(r => r.text()).then(setTextContent)
         .catch(() => setTextContent('Failed to load file.'));
+      return;
     }
-    // On video change, fetch saved position and seek to it once ready
-    if (activeItem?.fileType === 'video') {
-      lastSaved.current = 0;
+
+    if (activeItem?.fileType !== 'video') return;
+
+    lastSaved.current = 0;
+    const ext = activeItem.path.slice(activeItem.path.lastIndexOf('.')).toLowerCase();
+    const needsTranscode = !NATIVE_EXTS.has(ext);
+
+    if (!needsTranscode) {
+      // Native: render immediately, seek to saved position in background
+      savedPosRef.current = 0;
+      setHlsStatus('native');
       fetch('/api/position?root=' + encodeURIComponent(root) + '&file=' + encodeURIComponent(normPath(activeItem.path)))
         .then(r => r.json())
         .then(({ position }) => {
           if (!position || position < 2) return;
+          savedPosRef.current = position;
           const vid = videoRef.current;
           if (!vid) return;
-          const seek = () => { vid.currentTime = position; vid.removeEventListener('loadedmetadata', seek); };
-          if (vid.readyState >= 1) { vid.currentTime = position; }
-          else { vid.addEventListener('loadedmetadata', seek); }
-        })
-        .catch(() => {});
+          if (vid.readyState >= 1) vid.currentTime = position;
+          else vid.addEventListener('loadedmetadata', () => { vid.currentTime = position; }, { once: true });
+        }).catch(() => {});
+      return;
     }
+
+    // Non-native: fetch position then start HLS
+    fetch('/api/position?root=' + encodeURIComponent(root) + '&file=' + encodeURIComponent(normPath(activeItem.path)))
+      .then(r => r.json())
+      .then(({ position }) => {
+        savedPosRef.current = position || 0;
+        setHlsStatus('starting');
+        return fetch('/api/transcode-start', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ file: activeItem.path }),
+        }).then(r => r.json()).then(({ jobId: jid, status, duration }) => {
+          setJobId(jid);
+          if (duration > 0) setTotalDur(duration);
+          if (status === 'streaming' || status === 'done') {
+            setHlsStatus(status);
+          } else {
+            pollRef.current = setInterval(() => {
+              fetch('/api/transcode-status?jobId=' + jid)
+                .then(r => r.json())
+                .then(({ status: s, segmentCount, duration: d }) => {
+                  if (d > 0) setTotalDur(d);
+                  if (s === 'error') { clearInterval(pollRef.current); setHlsStatus('error'); return; }
+                  if (segmentCount >= 1) { clearInterval(pollRef.current); setHlsStatus(s); }
+                }).catch(() => {});
+            }, 200);
+          }
+        });
+      })
+      .catch(() => {});
+
+    return destroyHls;
   }, [activeItem?.path]);
 
+  // ── Effect 2: attach HLS after video element is in DOM ────────────────────
+  useEffect(() => {
+    const vid = videoRef.current;
+    if (!vid) return;
+
+    if (hlsStatus === 'native') {
+      const pos = savedPosRef.current;
+      if (pos > 2) {
+        if (vid.readyState >= 1) vid.currentTime = pos;
+        else vid.addEventListener('loadedmetadata', () => { vid.currentTime = pos; }, { once: true });
+      }
+      return;
+    }
+
+    if ((hlsStatus === 'streaming' || hlsStatus === 'done') && jobId) {
+      if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
+      if (Hls.isSupported()) {
+        const hls = new Hls({ enableWorker: true });
+        hlsRef.current = hls;
+        hls.loadSource(`/api/hls/${jobId}/index.m3u8`);
+        hls.attachMedia(vid);
+        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+          const pos = savedPosRef.current;
+          if (pos > 2) vid.currentTime = pos;
+          // Patch duration so it doesn't flicker while encoding
+          if (totalDur > 0) {
+            try { Object.defineProperty(vid, 'duration', { configurable: true, get: () => totalDur }); }
+            catch (_) {}
+          }
+          if (autoplay) vid.play().catch(() => {});
+        });
+        // Once encoding is done, restore native duration
+        hls.on(Hls.Events.LEVEL_UPDATED, (_, data) => {
+          if (data.details?.live === false) {
+            try { Object.defineProperty(vid, 'duration', { configurable: true, get: undefined, value: undefined }); }
+            catch (_) {}
+          }
+        });
+        hls.on(Hls.Events.ERROR, (_, d) => { if (d.fatal) setHlsStatus('error'); });
+      } else if (vid.canPlayType('application/vnd.apple.mpegurl')) {
+        vid.src = `/api/hls/${jobId}/index.m3u8`;
+        const pos = savedPosRef.current;
+        if (pos > 2) vid.addEventListener('loadedmetadata', () => { vid.currentTime = pos; }, { once: true });
+        if (autoplay) vid.play().catch(() => {});
+      }
+    }
+  }, [hlsStatus, jobId]);
+
+  // ── Keyboard shortcuts ────────────────────────────────────────────────────
   useEffect(() => {
     if (activeItem?.fileType !== 'video') return;
-    const ext = activeItem.path.slice(activeItem.path.lastIndexOf('.')).toLowerCase();
-    const transcoded = !NATIVE_EXTS.has(ext);
-
     function onKey(e) {
-      // Don't fire if user is typing in an input
       if (e.target.tagName === 'INPUT') return;
       const vid = videoRef.current;
       if (!vid) return;
-
-      if (e.key === 'f' || e.key === 'F') {
+      if (e.key === ' ') {
+        // If video itself has focus, browser handles it natively — don't double-fire
+        if (document.activeElement === vid) return;
         e.preventDefault();
-        if (document.fullscreenElement) document.exitFullscreen();
-        else vid.requestFullscreen();
-
-      } else if (e.key === ' ') {
+        if (vid.paused) vid.play().catch(() => {}); else vid.pause();
+      } else if (e.key === 'f' || e.key === 'F') {
         e.preventDefault();
-        if (vid.paused) vid.play().catch(() => {});
-        else vid.pause();
-
+        if (document.fullscreenElement) document.exitFullscreen(); else vid.requestFullscreen();
       } else if (e.key === 'm' || e.key === 'M') {
-        e.preventDefault();
-        vid.muted = !vid.muted;
-
+        e.preventDefault(); vid.muted = !vid.muted;
       } else if (e.key === 'ArrowRight') {
-        e.preventDefault();
-        const target = Math.min(vid.currentTime + 5, vid.duration || Infinity);
-        if (transcoded) {
-          clearTimeout(seekTimer.current);
-          seekTimer.current = setTimeout(() => {
-            vid.src = '/api/transcode?file=' + encodeURIComponent(activeItem.path) + '&t=' + Math.floor(target);
-            vid.load(); vid.play().catch(() => {});
-          }, 300);
-        } else {
-          vid.currentTime = target;
-        }
-
+        e.preventDefault(); vid.currentTime = Math.min(vid.currentTime + 5, vid.duration || 0);
       } else if (e.key === 'ArrowLeft') {
-        e.preventDefault();
-        const target = Math.max(vid.currentTime - 5, 0);
-        if (transcoded) {
-          clearTimeout(seekTimer.current);
-          seekTimer.current = setTimeout(() => {
-            vid.src = '/api/transcode?file=' + encodeURIComponent(activeItem.path) + '&t=' + Math.floor(target);
-            vid.load(); vid.play().catch(() => {});
-          }, 300);
-        } else {
-          vid.currentTime = target;
-        }
-
+        e.preventDefault(); vid.currentTime = Math.max(vid.currentTime - 5, 0);
       } else if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        vid.volume = Math.min(vid.volume + 0.1, 1);
+        e.preventDefault(); vid.volume = Math.min(vid.volume + 0.1, 1);
       } else if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        vid.volume = Math.max(vid.volume - 0.1, 0);
+        e.preventDefault(); vid.volume = Math.max(vid.volume - 0.1, 0);
       }
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [activeItem?.path]);
 
+  // ── Render ────────────────────────────────────────────────────────────────
   if (!activeItem) {
     return (
       <div className="player-wrap">
@@ -311,7 +385,7 @@ function Player({ activeItem, progress, onToggle, onSelect, root, autoplay, tree
     );
   }
 
-  const fp = normPath(activeItem.path);
+  const fp   = normPath(activeItem.path);
   const done = !!progress[fp];
   const markBtn = (
     <button className={'mark-done-btn' + (done ? ' done' : '')} onClick={() => onToggle(fp, !done)}>
@@ -322,34 +396,18 @@ function Player({ activeItem, progress, onToggle, onSelect, root, autoplay, tree
   if (activeItem.fileType === 'video') {
     const ext = activeItem.path.slice(activeItem.path.lastIndexOf('.')).toLowerCase();
     const needsTranscode = !NATIVE_EXTS.has(ext);
-    const baseSrc = needsTranscode
-      ? '/api/transcode?file=' + encodeURIComponent(activeItem.path)
-      : '/api/video?file=' + encodeURIComponent(activeItem.path);
 
-    function handleTimeUpdate() {
-      const now = Date.now();
-      if (now - lastSaved.current < 5000) return;
-      const vid = videoRef.current;
-      if (!vid || vid.ended || vid.currentTime < 2) return;
-      lastSaved.current = now;
+    function savePosition(pos) {
+      if (pos < 2) return;
+      lastSaved.current = Date.now();
       fetch('/api/position', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ root, filePath: normPath(activeItem.path), position: vid.currentTime }),
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ root, filePath: normPath(activeItem.path), position: pos }),
       }).catch(() => {});
     }
 
-    function handleSeeking() {
-      if (!needsTranscode) return;
-      clearTimeout(seekTimer.current);
-      seekTimer.current = setTimeout(() => {
-        const vid = videoRef.current;
-        if (!vid) return;
-        const t = Math.floor(vid.currentTime);
-        vid.src = '/api/transcode?file=' + encodeURIComponent(activeItem.path) + '&t=' + t;
-        vid.load(); vid.play().catch(() => {});
-      }, 400);
-    }
+    // Show status overlay while buffering — but keep video element in DOM always
+    const showBuffering = needsTranscode && hlsStatus !== 'streaming' && hlsStatus !== 'done';
 
     return (
       <div className="player-wrap">
@@ -357,34 +415,42 @@ function Player({ activeItem, progress, onToggle, onSelect, root, autoplay, tree
           <div className="video-title">{activeItem.name}</div>
           {markBtn}
         </div>
-        <div className="video-container">
+
+        {/* Always mount video so ref is available for Effect 2 */}
+        <div className="video-container" style={{ display: showBuffering ? 'none' : 'block' }}>
           <video ref={videoRef} controls key={activeItem.path}
-            autoPlay={autoplay}
-            onPause={() => {
-              const vid = videoRef.current;
-              if (!vid || vid.currentTime < 2) return;
-              lastSaved.current = Date.now();
-              fetch('/api/position', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ root, filePath: normPath(activeItem.path), position: vid.currentTime }),
-              }).catch(() => {});
-            }}
+            autoPlay={!needsTranscode && autoplay}
+            onPause={() => { const v = videoRef.current; if (v) savePosition(v.currentTime); }}
             onEnded={() => {
               onToggle(fp, true);
-              // Reset position
-              fetch('/api/position', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ root, filePath: normPath(activeItem.path), position: 0 }) }).catch(()=>{});
-              // Auto-advance to next file
+              fetch('/api/position', { method:'POST', headers:{'Content-Type':'application/json'},
+                body: JSON.stringify({ root, filePath: normPath(activeItem.path), position: 0 }) }).catch(()=>{});
               const all = flattenFiles(tree);
               const idx = all.findIndex(f => normPath(f.path) === fp);
               if (idx !== -1 && idx < all.length - 1) onSelect(all[idx + 1]);
             }}
-            onTimeUpdate={handleTimeUpdate}
-            onSeeking={handleSeeking}>
-            <source src={baseSrc} type="video/mp4"/>
+            onTimeUpdate={() => {
+              const vid = videoRef.current;
+              if (!vid || vid.ended) return;
+              if (Date.now() - lastSaved.current < 5000) return;
+              savePosition(vid.currentTime);
+            }}>
+            {/* Native: use source tag. HLS: hls.js injects src directly */}
+            {!needsTranscode && <source src={'/api/video?file=' + encodeURIComponent(activeItem.path)} type="video/mp4"/>}
           </video>
         </div>
-        {needsTranscode && <div className="transcode-note">⚡ Transcoding via ffmpeg — seeking restarts stream</div>}
+
+        {showBuffering && (
+          <div style={{textAlign:'center'}}>
+            {hlsStatus === 'error'
+              ? <div style={{color:'#f08080',fontSize:'13px',fontFamily:'JetBrains Mono,monospace'}}>❌ Transcode failed</div>
+              : <div style={{color:'var(--muted)',fontSize:'13px',fontFamily:'JetBrains Mono,monospace'}}>⚙ Preparing… (~2s)</div>
+            }
+          </div>
+        )}
+
+        {needsTranscode && hlsStatus === 'streaming' &&
+          <div className="transcode-note">⚡ Streaming — transcoding in background</div>}
       </div>
     );
   }
@@ -458,11 +524,37 @@ function App() {
       setSettings(s);
       if (s.lastPath) { setPathVal(s.lastPath); load(s.lastPath); }
     }).catch(() => {});
+
+    // If this is a refresh, cancel any pending cleanups
+    try {
+      const tracked = JSON.parse(sessionStorage.getItem('__cs_jobs') || '[]');
+      if (tracked.length > 0) {
+        fetch('/api/cancel-cleanup', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ jobIds: tracked }),
+        }).catch(() => {});
+      }
+    } catch (_) {}
+
+    // On tab close: schedule cleanup of current jobs (5s grace lets refresh cancel it)
+    function onUnload() {
+      try {
+        const tracked = JSON.parse(sessionStorage.getItem('__cs_jobs') || '[]');
+        tracked.forEach(jid => {
+          navigator.sendBeacon('/api/cleanup-job', JSON.stringify({ jobId: jid }));
+        });
+      } catch (_) {}
+    }
+
     function closeSettings(e) {
       if (!e.target.closest('.settings-wrap')) setShowSettings(false);
     }
     document.addEventListener('mousedown', closeSettings);
-    return () => document.removeEventListener('mousedown', closeSettings);
+    window.addEventListener('beforeunload', onUnload);
+    return () => {
+      document.removeEventListener('mousedown', closeSettings);
+      window.removeEventListener('beforeunload', onUnload);
+    };
   }, []);
 
   async function load(p) {
@@ -543,21 +635,21 @@ function App() {
           <button className="load-btn" style={{background:'var(--bg3)',color:'var(--text)',border:'1px solid var(--border)'}}
             onClick={() => setShowSettings(s => !s)}>⚙</button>
           {showSettings && (
-            <div style={{position:'absolute',right:0,top:'calc(100% + 8px)',background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:'8px',padding:'12px 16px',minWidth:'220px',zIndex:200,boxShadow:'0 8px 32px rgba(0,0,0,0.5)'}}>
+            <div style={{position:'absolute',right:0,top:'calc(100% + 8px)',background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:'8px',padding:'12px 16px',minWidth:'240px',zIndex:200,boxShadow:'0 8px 32px rgba(0,0,0,0.5)'}}>
               <div style={{fontSize:'11px',color:'var(--muted)',fontFamily:'JetBrains Mono,monospace',marginBottom:'10px',letterSpacing:'.04em'}}>SETTINGS</div>
+
               <div style={{fontSize:'13px',color:'var(--text)',marginBottom:'8px',fontWeight:600}}>Video Playback</div>
-              <div style={{display:'flex',flexDirection:'column',gap:'6px'}}>
+              <div style={{display:'flex',flexDirection:'column',gap:'6px',marginBottom:'14px'}}>
                 <label style={{display:'flex',alignItems:'center',gap:'8px',cursor:'pointer',fontSize:'13px',color: autoplay ? 'var(--accent)' : 'var(--text)'}}>
-                  <input type="radio" name="autoplay" checked={autoplay} onChange={() => saveSetting('autoplay','true')}
-                    style={{accentColor:'var(--accent)'}}/>
+                  <input type="radio" name="autoplay" checked={autoplay} onChange={() => saveSetting('autoplay','true')} style={{accentColor:'var(--accent)'}}/>
                   Autoplay on open
                 </label>
                 <label style={{display:'flex',alignItems:'center',gap:'8px',cursor:'pointer',fontSize:'13px',color: !autoplay ? 'var(--accent)' : 'var(--text)'}}>
-                  <input type="radio" name="autoplay" checked={!autoplay} onChange={() => saveSetting('autoplay','false')}
-                    style={{accentColor:'var(--accent)'}}/>
+                  <input type="radio" name="autoplay" checked={!autoplay} onChange={() => saveSetting('autoplay','false')} style={{accentColor:'var(--accent)'}}/>
                   Start paused
                 </label>
               </div>
+
             </div>
           )}
         </div>

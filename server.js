@@ -289,60 +289,192 @@ app.get('/api/video', (req, res) => {
   }
 });
 
-// ── API: probe codec (quick check via ffprobe) ────────────────────────────────
-app.get('/api/probe', (req, res) => {
-  const file = req.query.file;
-  if (!file || !fs.existsSync(file)) return res.status(404).json({ error: 'Not found' });
-  exec(
-    `ffprobe -v error -select_streams v:0 -show_entries stream=codec_name -of csv=p=0 "${file}"`,
-    (err, stdout) => {
-      if (err) return res.status(500).json({ error: 'probe failed' });
-      res.json({ codec: stdout.trim() });
-    }
-  );
+// ── HLS segmented transcode system ───────────────────────────────────────────
+const crypto   = require('crypto');
+const TEMP_DIR = path.join(__dirname, 'temp');
+
+// Clean and recreate temp dir on startup
+if (fs.existsSync(TEMP_DIR)) fs.rmSync(TEMP_DIR, { recursive: true });
+fs.mkdirSync(TEMP_DIR);
+
+// jobs: id → { status, segmentCount, ff, dir, filePath }
+// status: 'starting' | 'streaming' | 'done' | 'error'
+const jobs = {};
+
+function hashFile(filePath) {
+  return crypto.createHash('md5').update(filePath).digest('hex');
+}
+
+// ── API: start HLS transcode job ──────────────────────────────────────────────
+app.post('/api/transcode-start', (req, res) => {
+  const { file } = req.body;
+  if (!file || !fs.existsSync(file)) return res.status(404).json({ error: 'File not found' });
+
+  const id  = hashFile(file);
+  const dir = path.join(TEMP_DIR, id);
+
+  // Reuse if already running or done
+  if (jobs[id]?.status === 'streaming' || jobs[id]?.status === 'done') {
+    return res.json({ jobId: id, status: jobs[id].status, segmentCount: jobs[id].segmentCount });
+  }
+
+  // Fresh start
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir);
+  jobs[id] = { status: 'starting', segmentCount: 0, dir, filePath: file, duration: 0 };
+
+  const playlist = path.join(dir, 'index.m3u8');
+  const segPat   = path.join(dir, 'seg%04d.ts');
+
+  // Get duration in parallel (non-blocking) so frontend can show stable total time
+  exec(`ffprobe -v error -show_entries format=duration -of csv=p=0 "${file}"`, (_, stdout) => {
+    const d = parseFloat(stdout);
+    if (jobs[id] && !isNaN(d)) jobs[id].duration = d;
+  });
+
+  // Start immediately with stream copy (no probe delay)
+  // If copy fails (non-h264), retry with re-encode
+  function startFfmpeg(useEncode) {
+    const args = useEncode ? [
+      '-hide_banner', '-loglevel', 'error',
+      '-i', file,
+      '-c:v', 'libx264', '-preset', 'ultrafast', '-tune', 'fastdecode', '-crf', '28', '-threads', '0',
+      '-c:a', 'aac', '-b:a', '128k',
+      '-f', 'hls', '-hls_time', '2', '-hls_list_size', '0',
+      '-hls_flags', 'independent_segments+append_list',
+      '-hls_segment_filename', segPat,
+      '-hls_allow_cache', '1', playlist,
+    ] : [
+      '-hide_banner', '-loglevel', 'error',
+      '-i', file,
+      '-c:v', 'copy', '-c:a', 'aac', '-b:a', '128k',
+      '-f', 'hls', '-hls_time', '2', '-hls_list_size', '0',
+      '-hls_flags', 'independent_segments+append_list',
+      '-hls_segment_filename', segPat,
+      '-hls_allow_cache', '1', playlist,
+    ];
+
+    const ff = spawn('ffmpeg', args);
+    jobs[id].ff = ff;
+    console.log(`[hls] ${useEncode ? 'RE-ENCODE' : 'COPY'}: ${path.basename(file)}`);
+
+    const segPoller = setInterval(() => {
+      if (!jobs[id]) { clearInterval(segPoller); return; }
+      try {
+        const count = fs.readdirSync(dir).filter(f => f.endsWith('.ts')).length;
+        jobs[id].segmentCount = count;
+        if (count > 0 && jobs[id].status === 'starting') jobs[id].status = 'streaming';
+      } catch (_) {}
+    }, 200);
+
+    ff.on('close', code => {
+      clearInterval(segPoller);
+      if (code !== 0 && !useEncode) {
+        // Copy failed — wipe partial files and retry with encode
+        console.log(`[hls] copy failed, retrying with encode: ${path.basename(file)}`);
+        try { fs.readdirSync(dir).forEach(f => fs.unlinkSync(path.join(dir, f))); } catch (_) {}
+        jobs[id].segmentCount = 0;
+        jobs[id].status = 'starting';
+        startFfmpeg(true);
+        return;
+      }
+      try {
+        jobs[id].segmentCount = fs.existsSync(dir)
+          ? fs.readdirSync(dir).filter(f => f.endsWith('.ts')).length : 0;
+      } catch (_) {}
+      jobs[id].status = code === 0 ? 'done' : 'error';
+      if (code !== 0) console.error('[hls] ffmpeg failed, code:', code);
+    });
+
+    ff.stderr.on('data', () => {});
+    ff.on('error', err => { jobs[id].status = 'error'; console.error('[hls] spawn error:', err); });
+  }
+
+  startFfmpeg(false); // try copy first
+  res.json({ jobId: id, status: 'starting', duration: 0 });
 });
 
-// ── API: transcode → fragmented mp4 stream ────────────────────────────────────
-// ?file=...  absolute path
-// ?t=...     optional start time in seconds for seeking
-app.get('/api/transcode', (req, res) => {
-  const file = req.query.file;
-  const t    = parseFloat(req.query.t) || 0;
+// ── API: delete a transcode job and its temp files ────────────────────────────
+app.delete('/api/transcode-job', (req, res) => {
+  const { jobId } = req.query;
+  const job = jobs[jobId];
+  if (!job) return res.json({ ok: true }); // already gone
+  if (job.ff) job.ff.kill('SIGKILL');
+  if (fs.existsSync(job.dir)) fs.rmSync(job.dir, { recursive: true });
+  delete jobs[jobId];
+  res.json({ ok: true });
+});
 
-  if (!file || !fs.existsSync(file)) return res.status(404).send('Not found');
+// ── API: poll HLS job status ──────────────────────────────────────────────────
+app.get('/api/transcode-status', (req, res) => {
+  const job = jobs[req.query.jobId];
+  if (!job) return res.status(404).json({ error: 'Not found' });
+  res.json({ status: job.status, segmentCount: job.segmentCount, duration: job.duration || 0 });
+});
 
-  res.setHeader('Content-Type', 'video/mp4');
-  res.setHeader('Transfer-Encoding', 'chunked');
+// ── API: serve HLS playlist ───────────────────────────────────────────────────
+app.get('/api/hls/:jobId/index.m3u8', (req, res) => {
+  const job = jobs[req.params.jobId];
+  if (!job) return res.status(404).send('Not found');
+  const playlist = path.join(job.dir, 'index.m3u8');
+  if (!fs.existsSync(playlist)) return res.status(404).send('Not ready');
+  // Rewrite segment URLs to go through our API
+  const raw = fs.readFileSync(playlist, 'utf8').replace(/\r\n/g, '\n');
+  const rewritten = raw.replace(/^(seg\d+\.ts)$/mg, `/api/hls/${req.params.jobId}/$1`);
+  res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.send(rewritten);
+});
 
-  const args = [
-    '-hide_banner', '-loglevel', 'error',
-    ...(t > 0 ? ['-ss', String(t)] : []),
-    '-i', file,
-    '-c:v', 'libx264',
-    '-preset', 'ultrafast',
-    '-tune', 'zerolatency',
-    '-crf', '23',
-    '-c:a', 'aac',
-    '-b:a', '128k',
-    '-movflags', 'frag_keyframe+empty_moov+faststart',
-    '-f', 'mp4',
-    'pipe:1',
-  ];
+// ── API: serve HLS segments ───────────────────────────────────────────────────
+app.get('/api/hls/:jobId/:segment', (req, res) => {
+  const job = jobs[req.params.jobId];
+  if (!job) return res.status(404).send('Not found');
+  const segFile = path.join(job.dir, req.params.segment);
+  if (!fs.existsSync(segFile)) return res.status(404).send('Segment not ready');
+  res.setHeader('Content-Type', 'video/mp2t');
+  fs.createReadStream(segFile).pipe(res);
+});
 
-  const ff = spawn('ffmpeg', args);
-  ff.stdout.pipe(res);
-  ff.stderr.on('data', d => {
-    const msg = d.toString().trim();
-    if (msg) console.error('[ffmpeg]', msg);
+// ── Job cleanup helpers ───────────────────────────────────────────────────────
+function deleteJob(id) {
+  const job = jobs[id];
+  if (!job) return;
+  if (job.ff) { try { job.ff.kill('SIGKILL'); } catch (_) {} }
+  if (fs.existsSync(job.dir)) fs.rmSync(job.dir, { recursive: true });
+  delete jobs[id];
+  console.log(`[hls] deleted job ${id}`);
+}
+
+// ── API: schedule job deletion (5s grace — refresh can cancel) ────────────────
+app.post('/api/cleanup-job', express.text({ type: '*/*' }), (req, res) => {
+  let jobId;
+  try { jobId = (typeof req.body === 'string' ? JSON.parse(req.body) : req.body).jobId; } catch (_) {}
+  if (!jobId || !jobs[jobId]) return res.json({ ok: false });
+  jobs[jobId].deleteTimer = setTimeout(() => deleteJob(jobId), 5000);
+  res.json({ ok: true });
+});
+
+// ── API: cancel pending deletion (called on refresh/reload) ──────────────────
+app.post('/api/cancel-cleanup', (req, res) => {
+  const { jobIds } = req.body;
+  if (!Array.isArray(jobIds)) return res.json({ ok: false });
+  jobIds.forEach(id => {
+    if (jobs[id]?.deleteTimer) {
+      clearTimeout(jobs[id].deleteTimer);
+      delete jobs[id].deleteTimer;
+    }
   });
-  ff.on('error', err => {
-    console.error('ffmpeg spawn error:', err);
-    if (!res.headersSent) res.status(500).send('ffmpeg error');
-  });
-  req.on('close', () => ff.kill('SIGKILL'));
+  res.json({ ok: true });
+});
+
+// ── API: cleanup specific job immediately (on video switch) ───────────────────
+app.post('/api/cleanup-job-now', (req, res) => {
+  const { jobId } = req.body;
+  if (jobId && jobs[jobId]) deleteJob(jobId);
+  res.json({ ok: true });
 });
 
 const PORT = process.env.PORT || 3737;
 app.listen(PORT, () => {
-  console.log(`\n  Course Viewer → http://localhost:${PORT}\n`);
+  console.log(`\n  CourseShelf → http://localhost:${PORT}\n`);
 });
