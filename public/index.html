@@ -125,6 +125,25 @@ function findItemByPath(items, fp) {
   return null;
 }
 
+// Flatten tree into ordered list of file items only
+function flattenFiles(items) {
+  const result = [];
+  for (const item of items) {
+    if (item.type === 'file') result.push(item);
+    else if (item.type === 'folder') result.push(...flattenFiles(item.children));
+  }
+  return result;
+}
+
+// Returns true if this folder subtree contains the active file path
+function containsPath(items, fp) {
+  for (const item of items) {
+    if (item.type === 'file' && normPath(item.path) === fp) return true;
+    if (item.type === 'folder' && containsPath(item.children, fp)) return true;
+  }
+  return false;
+}
+
 function FileItem({ item, progress, active, onSelect, onToggle, depth }) {
   const fp = normPath(item.path);
   const done = !!progress[fp];
@@ -149,7 +168,13 @@ function FileItem({ item, progress, active, onSelect, onToggle, depth }) {
 
 function Section({ item, progress, active, onSelect, onToggle, depth }) {
   depth = depth || 0;
-  const [open, setOpen] = useState(false);
+  const hasActive = active ? containsPath(item.children, active) : false;
+  const [open, setOpen] = useState(hasActive);
+
+  // When active changes (e.g. after load restores last file), open if needed
+  useEffect(() => {
+    if (active && containsPath(item.children, active)) setOpen(true);
+  }, [active]);
   const { total, done } = countFiles(item.children, progress);
   const pct = total === 0 ? 0 : Math.round((done / total) * 100);
   const pl = (16 + depth * 14) + 'px';
@@ -181,7 +206,7 @@ function Section({ item, progress, active, onSelect, onToggle, depth }) {
   );
 }
 
-function Player({ activeItem, progress, onToggle, root, autoplay }) {
+function Player({ activeItem, progress, onToggle, onSelect, root, autoplay, tree }) {
   const videoRef    = useRef(null);
   const seekTimer   = useRef(null);
   const saveTimer   = useRef(null);
@@ -296,7 +321,15 @@ function Player({ activeItem, progress, onToggle, root, autoplay }) {
                 body: JSON.stringify({ root, filePath: normPath(activeItem.path), position: vid.currentTime }),
               }).catch(() => {});
             }}
-            onEnded={() => { onToggle(fp, true); fetch('/api/position', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ root, filePath: normPath(activeItem.path), position: 0 }) }).catch(()=>{}); }}
+            onEnded={() => {
+              onToggle(fp, true);
+              // Reset position
+              fetch('/api/position', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ root, filePath: normPath(activeItem.path), position: 0 }) }).catch(()=>{});
+              // Auto-advance to next file
+              const all = flattenFiles(tree);
+              const idx = all.findIndex(f => normPath(f.path) === fp);
+              if (idx !== -1 && idx < all.length - 1) onSelect(all[idx + 1]);
+            }}
             onTimeUpdate={handleTimeUpdate}
             onSeeking={handleSeeking}>
             <source src={baseSrc} type="video/mp4"/>
@@ -492,7 +525,7 @@ function App() {
           )}
         </div>
         <div className="main">
-          <Player activeItem={activeItem} progress={progress} onToggle={handleToggle} root={root} autoplay={autoplay}/>
+          <Player activeItem={activeItem} progress={progress} onToggle={handleToggle} onSelect={handleSelect} root={root} autoplay={autoplay} tree={tree}/>
         </div>
       </div>
       {toastMsg && <div key={toastKey} className="toast">{toastMsg}</div>}
