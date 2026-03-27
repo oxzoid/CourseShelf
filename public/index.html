@@ -311,28 +311,21 @@ function Player({ activeItem, progress, onToggle, onSelect, root, autoplay, tree
     if ((hlsStatus === 'streaming' || hlsStatus === 'done') && jobId) {
       if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
       if (Hls.isSupported()) {
-        const hls = new Hls({ enableWorker: true });
-        hlsRef.current = hls;
-        hls.loadSource(`/api/hls/${jobId}/index.m3u8`);
-        hls.attachMedia(vid);
-        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        const hlsInst = new Hls({
+          enableWorker: true,
+          maxBufferLength: 30,
+          maxMaxBufferLength: 60,
+          backBufferLength: 90,
+        });
+        hlsRef.current = hlsInst;
+        hlsInst.loadSource(`/api/hls/${jobId}/index.m3u8`);
+        hlsInst.attachMedia(vid);
+        hlsInst.on(Hls.Events.MANIFEST_PARSED, () => {
           const pos = savedPosRef.current;
           if (pos > 2) vid.currentTime = pos;
-          // Patch duration so it doesn't flicker while encoding
-          if (totalDur > 0) {
-            try { Object.defineProperty(vid, 'duration', { configurable: true, get: () => totalDur }); }
-            catch (_) {}
-          }
           if (autoplay) vid.play().catch(() => {});
         });
-        // Once encoding is done, restore native duration
-        hls.on(Hls.Events.LEVEL_UPDATED, (_, data) => {
-          if (data.details?.live === false) {
-            try { Object.defineProperty(vid, 'duration', { configurable: true, get: undefined, value: undefined }); }
-            catch (_) {}
-          }
-        });
-        hls.on(Hls.Events.ERROR, (_, d) => { if (d.fatal) setHlsStatus('error'); });
+        hlsInst.on(Hls.Events.ERROR, (_, d) => { if (d.fatal) setHlsStatus('error'); });
       } else if (vid.canPlayType('application/vnd.apple.mpegurl')) {
         vid.src = `/api/hls/${jobId}/index.m3u8`;
         const pos = savedPosRef.current;

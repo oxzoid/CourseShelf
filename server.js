@@ -315,21 +315,18 @@ app.post('/api/transcode-start', (req, res) => {
 
   // Reuse if already running or done
   if (jobs[id]?.status === 'streaming' || jobs[id]?.status === 'done') {
-    return res.json({ jobId: id, status: jobs[id].status, segmentCount: jobs[id].segmentCount });
+    return res.json({ jobId: id, status: jobs[id].status, segmentCount: jobs[id].segmentCount, duration: jobs[id].duration || 0 });
   }
 
-  // Fresh start
+  // Fresh start — get duration synchronously via ffprobe before starting ffmpeg
   if (!fs.existsSync(dir)) fs.mkdirSync(dir);
-  jobs[id] = { status: 'starting', segmentCount: 0, dir, filePath: file, duration: 0 };
 
-  const playlist = path.join(dir, 'index.m3u8');
-  const segPat   = path.join(dir, 'seg%04d.ts');
-
-  // Get duration in parallel (non-blocking) so frontend can show stable total time
   exec(`ffprobe -v error -show_entries format=duration -of csv=p=0 "${file}"`, (_, stdout) => {
-    const d = parseFloat(stdout);
-    if (jobs[id] && !isNaN(d)) jobs[id].duration = d;
-  });
+    const duration = parseFloat(stdout) || 0;
+    jobs[id] = { status: 'starting', segmentCount: 0, dir, filePath: file, duration, seekBase: 0 };
+
+    const playlist = path.join(dir, 'index.m3u8');
+    const segPat   = path.join(dir, 'seg%04d.ts');
 
   // Start immediately with stream copy (no probe delay)
   // If copy fails (non-h264), retry with re-encode
@@ -338,19 +335,22 @@ app.post('/api/transcode-start', (req, res) => {
       '-hide_banner', '-loglevel', 'error',
       '-i', file,
       '-c:v', 'libx264', '-preset', 'ultrafast', '-tune', 'fastdecode', '-crf', '28', '-threads', '0',
+      '-force_key_frames', 'expr:gte(t,n_forced*2)', '-sc_threshold', '0',
       '-c:a', 'aac', '-b:a', '128k',
       '-f', 'hls', '-hls_time', '2', '-hls_list_size', '0',
-      '-hls_flags', 'independent_segments+append_list',
+      '-hls_playlist_type', 'event',
+      '-hls_flags', 'independent_segments',
       '-hls_segment_filename', segPat,
-      '-hls_allow_cache', '1', playlist,
+      playlist,
     ] : [
       '-hide_banner', '-loglevel', 'error',
       '-i', file,
       '-c:v', 'copy', '-c:a', 'aac', '-b:a', '128k',
       '-f', 'hls', '-hls_time', '2', '-hls_list_size', '0',
-      '-hls_flags', 'independent_segments+append_list',
+      '-hls_playlist_type', 'event',
+      '-hls_flags', 'independent_segments',
       '-hls_segment_filename', segPat,
-      '-hls_allow_cache', '1', playlist,
+      playlist,
     ];
 
     const ff = spawn('ffmpeg', args);
@@ -390,7 +390,8 @@ app.post('/api/transcode-start', (req, res) => {
   }
 
   startFfmpeg(false); // try copy first
-  res.json({ jobId: id, status: 'starting', duration: 0 });
+  res.json({ jobId: id, status: 'starting', duration });
+  }); // end exec callback
 });
 
 // ── API: delete a transcode job and its temp files ────────────────────────────
@@ -411,28 +412,111 @@ app.get('/api/transcode-status', (req, res) => {
   res.json({ status: job.status, segmentCount: job.segmentCount, duration: job.duration || 0 });
 });
 
-// ── API: serve HLS playlist ───────────────────────────────────────────────────
+// ── API: serve HLS playlist with duration injection ───────────────────────────
 app.get('/api/hls/:jobId/index.m3u8', (req, res) => {
   const job = jobs[req.params.jobId];
   if (!job) return res.status(404).send('Not found');
   const playlist = path.join(job.dir, 'index.m3u8');
   if (!fs.existsSync(playlist)) return res.status(404).send('Not ready');
-  // Rewrite segment URLs to go through our API
-  const raw = fs.readFileSync(playlist, 'utf8').replace(/\r\n/g, '\n');
-  const rewritten = raw.replace(/^(seg\d+\.ts)$/mg, `/api/hls/${req.params.jobId}/$1`);
+
+  let raw = fs.readFileSync(playlist, 'utf8').replace(/\r\n/g, '\n');
+
+  // Rewrite segment filenames to go through our API
+  raw = raw.replace(/^(seg\d+\.ts)$/mg, `/api/hls/${req.params.jobId}/$1`);
+
   res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
   res.setHeader('Cache-Control', 'no-cache');
-  res.send(rewritten);
+  res.send(raw);
 });
 
-// ── API: serve HLS segments ───────────────────────────────────────────────────
+// ── API: seek — restart ffmpeg from a specific time ──────────────────────────
+app.post('/api/hls-seek', (req, res) => {
+  const { jobId, seekTime } = req.body;
+  const job = jobs[jobId];
+  if (!job) return res.status(404).json({ error: 'Job not found' });
+
+  const t = Math.max(0, Math.floor(parseFloat(seekTime)));
+
+  // Kill current ffmpeg
+  if (job.ff) { try { job.ff.kill('SIGKILL'); } catch (_) {} job.ff = null; }
+
+  // Wipe existing segments and playlist to avoid stale data
+  try {
+    fs.readdirSync(job.dir).forEach(f => {
+      if (f.endsWith('.ts') || f.endsWith('.m3u8')) fs.unlinkSync(path.join(job.dir, f));
+    });
+  } catch (_) {}
+
+  job.segmentCount = 0;
+  job.status = 'starting';
+  job.seekBase = t; // track what time offset we started from
+
+  const segPat   = path.join(job.dir, 'seg%04d.ts');
+  const playlist = path.join(job.dir, 'index.m3u8');
+
+  const args = [
+    '-hide_banner', '-loglevel', 'error',
+    '-ss', String(t),
+    '-i', job.filePath,
+    '-c:v', 'copy', '-c:a', 'aac', '-b:a', '128k',
+    '-f', 'hls', '-hls_time', '2', '-hls_list_size', '0',
+    '-hls_playlist_type', 'event',
+    '-hls_segment_filename', segPat,
+    playlist,
+  ];
+
+  const ff = spawn('ffmpeg', args);
+  job.ff = ff;
+  console.log(`[hls] SEEK to ${t}s: ${path.basename(job.filePath)}`);
+
+  const segPoller = setInterval(() => {
+    if (!jobs[jobId]) { clearInterval(segPoller); return; }
+    try {
+      const count = fs.readdirSync(job.dir).filter(f => f.endsWith('.ts')).length;
+      job.segmentCount = count;
+      if (count > 0 && job.status === 'starting') job.status = 'streaming';
+    } catch (_) {}
+  }, 200);
+
+  ff.on('close', code => {
+    clearInterval(segPoller);
+    try { job.segmentCount = fs.readdirSync(job.dir).filter(f => f.endsWith('.ts')).length; } catch (_) {}
+    job.status = code === 0 ? 'done' : 'error';
+    job.ff = null;
+  });
+  ff.stderr.on('data', () => {});
+  ff.on('error', err => { job.status = 'error'; console.error('[hls-seek]', err); });
+
+  res.json({ ok: true, seekBase: t });
+});
+
+// ── API: serve HLS segments (waits up to 30s for segment to be encoded) ──────
 app.get('/api/hls/:jobId/:segment', (req, res) => {
   const job = jobs[req.params.jobId];
   if (!job) return res.status(404).send('Not found');
   const segFile = path.join(job.dir, req.params.segment);
-  if (!fs.existsSync(segFile)) return res.status(404).send('Segment not ready');
-  res.setHeader('Content-Type', 'video/mp2t');
-  fs.createReadStream(segFile).pipe(res);
+
+  // If segment already exists, serve immediately
+  if (fs.existsSync(segFile)) {
+    res.setHeader('Content-Type', 'video/mp2t');
+    return fs.createReadStream(segFile).pipe(res);
+  }
+
+  // Segment not yet encoded — poll for it up to 15s
+  const deadline = Date.now() + 15000;
+  const poller = setInterval(() => {
+    if (fs.existsSync(segFile)) {
+      clearInterval(poller);
+      res.setHeader('Content-Type', 'video/mp2t');
+      fs.createReadStream(segFile).pipe(res);
+    } else if (Date.now() > deadline) {
+      clearInterval(poller);
+      res.status(404).send('Segment not ready');
+    }
+  }, 200);
+
+  // Clean up if client disconnects
+  req.on('close', () => clearInterval(poller));
 });
 
 // ── Job cleanup helpers ───────────────────────────────────────────────────────
