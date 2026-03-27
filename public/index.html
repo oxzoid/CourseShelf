@@ -239,12 +239,61 @@ function Player({ activeItem, progress, onToggle, onSelect, root, autoplay, tree
 
   useEffect(() => {
     if (activeItem?.fileType !== 'video') return;
+    const ext = activeItem.path.slice(activeItem.path.lastIndexOf('.')).toLowerCase();
+    const transcoded = !NATIVE_EXTS.has(ext);
+
     function onKey(e) {
+      // Don't fire if user is typing in an input
+      if (e.target.tagName === 'INPUT') return;
+      const vid = videoRef.current;
+      if (!vid) return;
+
       if (e.key === 'f' || e.key === 'F') {
-        const vid = videoRef.current;
-        if (!vid) return;
+        e.preventDefault();
         if (document.fullscreenElement) document.exitFullscreen();
         else vid.requestFullscreen();
+
+      } else if (e.key === ' ') {
+        e.preventDefault();
+        if (vid.paused) vid.play().catch(() => {});
+        else vid.pause();
+
+      } else if (e.key === 'm' || e.key === 'M') {
+        e.preventDefault();
+        vid.muted = !vid.muted;
+
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        const target = Math.min(vid.currentTime + 5, vid.duration || Infinity);
+        if (transcoded) {
+          clearTimeout(seekTimer.current);
+          seekTimer.current = setTimeout(() => {
+            vid.src = '/api/transcode?file=' + encodeURIComponent(activeItem.path) + '&t=' + Math.floor(target);
+            vid.load(); vid.play().catch(() => {});
+          }, 300);
+        } else {
+          vid.currentTime = target;
+        }
+
+      } else if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        const target = Math.max(vid.currentTime - 5, 0);
+        if (transcoded) {
+          clearTimeout(seekTimer.current);
+          seekTimer.current = setTimeout(() => {
+            vid.src = '/api/transcode?file=' + encodeURIComponent(activeItem.path) + '&t=' + Math.floor(target);
+            vid.load(); vid.play().catch(() => {});
+          }, 300);
+        } else {
+          vid.currentTime = target;
+        }
+
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        vid.volume = Math.min(vid.volume + 0.1, 1);
+      } else if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        vid.volume = Math.max(vid.volume - 0.1, 0);
       }
     }
     window.addEventListener('keydown', onKey);
