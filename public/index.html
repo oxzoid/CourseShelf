@@ -239,14 +239,17 @@ function VideoPlayer({item,prog,root,autoplay,tree,onToggle,onSelect,forcePlay,o
   // Never return early — video element must always be in DOM so vidRef is always valid
   // Non-native files show a blocked overlay on top of the (hidden) video shell
 
-  function savePos(pos,force=false){
+  const savePosRef = useRef(null);
+  const seekTargetRef = useRef(0);
+  savePosRef.current = (pos, force=false) => {
     if(!root||!pos||pos<2) return;
     const now=Date.now();
     if(!force&&now-lastSaveRef.current<4000) return;
     lastSaveRef.current=now;
     fetch('/api/position',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({root,filePath:fp,position:pos})}).catch(()=>{});
-  }
+  };
+  const savePos = (pos, force) => savePosRef.current(pos, force);
 
   useEffect(()=>{
     prevPathRef.current = fp;
@@ -260,28 +263,20 @@ function VideoPlayer({item,prog,root,autoplay,tree,onToggle,onSelect,forcePlay,o
     if(forcePlay && onForcePlayConsumed) onForcePlayConsumed();
 
 
+    seekTargetRef.current = 0;
     vid.src='/api/video?file='+encodeURIComponent(item.path);
     vid.playbackRate=rate; vid.volume=vol; vid.muted=muted;
 
     fetch(`/api/position?root=${encodeURIComponent(root)}&file=${encodeURIComponent(fp)}`)
       .then(r=>r.json()).then(({position})=>{
-        const stillValid = vidRef.current && vidRef.current.src.indexOf(encodeURIComponent(item.path))!==-1;
-        if(!stillValid) return;
-        const seekTo = position>2 ? position : 0;
-        const apply = () => {
-          if(isFinite(vid.duration)){setDuration(vid.duration);setLoaded(vid.duration);}
-          if(seekTo) vid.currentTime=seekTo;
-          setShowPlay(!shouldAutoplay);
-          if(shouldAutoplay) vid.play().catch(()=>{});
-        };
-        if(vid.readyState>=1) apply();
-      }).catch(e=>{
-        vid.addEventListener('loadedmetadata',()=>{
-          if(isFinite(vid.duration)){setDuration(vid.duration);setLoaded(vid.duration);}
-          setShowPlay(!shouldAutoplay);
-          if(shouldAutoplay) vid.play().catch(()=>{});
-        },{once:true});
-      });
+        seekTargetRef.current = position > 2 ? position : 0;
+        if(vid.readyState >= 1 && seekTargetRef.current){
+          vid.currentTime = seekTargetRef.current;
+          seekTargetRef.current = 0;
+        }
+      }).catch(()=>{});
+    setShowPlay(!shouldAutoplay);
+    if(shouldAutoplay) vid.play().catch(()=>{});
   },[item.path,root]);
 
   useEffect(()=>{
@@ -291,7 +286,13 @@ function VideoPlayer({item,prog,root,autoplay,tree,onToggle,onSelect,forcePlay,o
     const onWait=()=>setBuffering(true);
     const onResume=()=>setBuffering(false);
     const onTime=()=>{if(drag==null)setCur(vid.currentTime);if(!vid.ended)savePos(vid.currentTime);};
-    const onMeta=()=>{if(isFinite(vid.duration)){setDuration(vid.duration);setLoaded(vid.duration);}};
+    const onMeta=()=>{
+      if(isFinite(vid.duration)){setDuration(vid.duration);setLoaded(vid.duration);}
+      if(seekTargetRef.current){
+        vid.currentTime = seekTargetRef.current;
+        seekTargetRef.current = 0;
+      }
+    };
     const onProg=()=>{if(vid.buffered.length)try{setLoaded(vid.buffered.end(vid.buffered.length-1));}catch{}};
     const onEnded=()=>{
       setPlaying(false);setShowPlay(true);
