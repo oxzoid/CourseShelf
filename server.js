@@ -64,6 +64,12 @@ function scan(dir, prefix = '') {
     const ext = path.extname(f.name).toLowerCase();
     let type = VIDEO.has(ext) ? 'video' : ext==='.pdf' ? 'pdf' : ['.txt','.md','.markdown'].includes(ext) ? 'text' : null;
     if (!type) return;
+    // If a .mp4 with the same base name exists, skip the non-native duplicate
+    if (type === 'video' && !NATIVE.has(ext)) {
+      const base = f.name.slice(0, f.name.lastIndexOf('.'));
+      const hasMp4 = entries.some(e => e.isFile() && e.name === base + '.mp4');
+      if (hasMp4) return;
+    }
     out.push({ type:'file', fileType:type, name:f.name, path:path.join(dir,f.name), ext });
   });
   return out;

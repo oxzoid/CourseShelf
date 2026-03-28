@@ -215,9 +215,10 @@ function OverallProgress({tree,prog}){
 }
 
 // ── Video Player ──────────────────────────────────────────────────────────────
-function VideoPlayer({item,prog,root,autoplay,tree,onToggle,onSelect}){
+function VideoPlayer({item,prog,root,autoplay,tree,onToggle,onSelect,forcePlay,onForcePlayConsumed}){
   const vidRef=useRef(null);
   const lastSaveRef=useRef(0);
+  const prevPathRef=useRef(null);
 
   const [cur,setCur]=useState(0);
   const [drag,setDrag]=useState(null);
@@ -235,20 +236,8 @@ function VideoPlayer({item,prog,root,autoplay,tree,onToggle,onSelect}){
   const isNative=NATIVE.has(ext);
   const done=!!prog[fp];
 
-  // Block non-native
-  if (!isNative) return (
-    <div className="player-wrap">
-      <div className="title-bar">
-        <div className="video-title">{item.name}</div>
-        <button className={`mark-btn${done?' on':''}`} onClick={()=>onToggle(fp,!done)}>{done?'✓ Done':'Mark Done'}</button>
-      </div>
-      <div style={{textAlign:'center',color:'var(--muted)',padding:'40px 20px'}}>
-        <div style={{fontSize:36,marginBottom:14}}>🎬</div>
-        <div style={{fontSize:14,fontWeight:600,color:'var(--text)',marginBottom:8}}>{ext.toUpperCase()} file — needs conversion</div>
-        <div style={{fontSize:12,lineHeight:1.7}}>Click <strong style={{color:'var(--accent)'}}>⚡ Convert to mp4</strong> in the header<br/>to convert all non-native videos for instant playback.</div>
-      </div>
-    </div>
-  );
+  // Never return early — video element must always be in DOM so vidRef is always valid
+  // Non-native files show a blocked overlay on top of the (hidden) video shell
 
   function savePos(pos,force=false){
     if(!root||!pos||pos<2) return;
@@ -260,22 +249,46 @@ function VideoPlayer({item,prog,root,autoplay,tree,onToggle,onSelect}){
   }
 
   useEffect(()=>{
+    console.log(`[VP] ${prevPathRef.current?.split('\\').pop()} → ${fp.split('\\').pop()} | native:${isNative}`);
+    prevPathRef.current = fp;
     setCur(0);setDrag(null);setLoaded(0);setDuration(0);setPlaying(false);setBuffering(false);setShowPlay(false);
     lastSaveRef.current=0;
     const vid=vidRef.current;
-    if(vid){try{vid.pause();vid.removeAttribute('src');vid.load();}catch{}}
+    if(!vid) return;
+    try{vid.pause();vid.removeAttribute('src');vid.load();}catch(e){}
+
+    const shouldAutoplay = autoplay || forcePlay;
+    if(forcePlay && onForcePlayConsumed) onForcePlayConsumed();
+
+    if(!isNative){ console.log('[VP] blocked screen'); return; }
+
+    vid.src='/api/video?file='+encodeURIComponent(item.path);
+    vid.playbackRate=rate; vid.volume=vol; vid.muted=muted;
+    console.log('[VP] src set, readyState:', vid.readyState);
+
     fetch(`/api/position?root=${encodeURIComponent(root)}&file=${encodeURIComponent(fp)}`)
       .then(r=>r.json()).then(({position})=>{
-        const vid=vidRef.current; if(!vid) return;
-        vid.src='/api/video?file='+encodeURIComponent(item.path);
-        vid.playbackRate=rate;vid.volume=vol;vid.muted=muted;
+        const stillValid = vidRef.current && vidRef.current.src.indexOf(encodeURIComponent(item.path))!==-1;
+        console.log(`[VP] position=${position} stillValid=${stillValid} readyState=${vid.readyState}`);
+        if(!stillValid) return;
+        const seekTo = position>2 ? position : 0;
+        const apply = () => {
+          console.log(`[VP] apply duration=${vid.duration} seekTo=${seekTo}`);
+          if(isFinite(vid.duration)){setDuration(vid.duration);setLoaded(vid.duration);}
+          if(seekTo) vid.currentTime=seekTo;
+          setShowPlay(!shouldAutoplay);
+          if(shouldAutoplay) vid.play().catch(()=>{});
+        };
+        if(vid.readyState>=1) apply();
+        else { console.log('[VP] waiting loadedmetadata'); vid.addEventListener('loadedmetadata', apply, {once:true}); }
+      }).catch(e=>{
+        console.error('[VP] position fetch failed:', e);
         vid.addEventListener('loadedmetadata',()=>{
           if(isFinite(vid.duration)){setDuration(vid.duration);setLoaded(vid.duration);}
-          if(position>2) vid.currentTime=position;
-          setShowPlay(!autoplay);
-          if(autoplay) vid.play().catch(()=>{});
+          setShowPlay(!shouldAutoplay);
+          if(shouldAutoplay) vid.play().catch(()=>{});
         },{once:true});
-      }).catch(()=>{});
+      });
   },[item.path,root]);
 
   useEffect(()=>{
@@ -342,7 +355,9 @@ function VideoPlayer({item,prog,root,autoplay,tree,onToggle,onSelect}){
         <div className="video-title">{item.name}</div>
         <button className={`mark-btn${done?' on':''}`} onClick={()=>onToggle(fp,!done)}>{done?'✓ Done':'Mark Done'}</button>
       </div>
-      <div className="vshell">
+
+      {/* Always render video shell so vidRef stays mounted across native/non-native switches */}
+      <div className="vshell" style={{display: isNative ? 'block' : 'none'}}>
         <div className="vstage" onClick={()=>{const v=vidRef.current;v&&(v.paused?v.play().catch(()=>{}):v.pause());}}>
           <video ref={vidRef} playsInline preload="auto"/>
           <div className="vcenter">
@@ -388,12 +403,21 @@ function VideoPlayer({item,prog,root,autoplay,tree,onToggle,onSelect}){
           </div>
         </div>
       </div>
+
+      {/* Blocked screen for non-native files */}
+      {!isNative&&(
+        <div style={{textAlign:'center',color:'var(--muted)',padding:'40px 20px'}}>
+          <div style={{fontSize:36,marginBottom:14}}>🎬</div>
+          <div style={{fontSize:14,fontWeight:600,color:'var(--text)',marginBottom:8}}>{ext.toUpperCase()} — needs conversion</div>
+          <div style={{fontSize:12,lineHeight:1.7}}>Click <strong style={{color:'var(--accent)'}}>⚡ Convert to mp4</strong> in the header.</div>
+        </div>
+      )}
     </div>
   );
 }
 
 // ── Player (dispatches by type) ───────────────────────────────────────────────
-function Player({item,prog,root,autoplay,tree,onToggle,onSelect}){
+function Player({item,prog,root,autoplay,tree,onToggle,onSelect,forcePlay,onForcePlayConsumed}){
   const [text,setText]=useState('');
   useEffect(()=>{
     if(!item||item.fileType!=='text') return;
@@ -413,7 +437,7 @@ function Player({item,prog,root,autoplay,tree,onToggle,onSelect}){
   const markBtn=<button className={`mark-btn${done?' on':''}`} onClick={()=>onToggle(fp,!done)}>{done?'✓ Done':'Mark Done'}</button>;
 
   if(item.fileType==='video') return(
-    <VideoPlayer item={item} prog={prog} root={root} autoplay={autoplay} tree={tree} onToggle={onToggle} onSelect={onSelect}/>
+    <VideoPlayer item={item} prog={prog} root={root} autoplay={autoplay} tree={tree} onToggle={onToggle} onSelect={onSelect} forcePlay={forcePlay} onForcePlayConsumed={onForcePlayConsumed}/>
   );
   if(item.fileType==='pdf') return(
     <div className="player-wrap">
@@ -443,6 +467,7 @@ function App(){
   const [toastKey,setToastKey]=useState(0);
   const [converting,setConverting]=useState(false);
   const [convStatus,setConvStatus]=useState('');
+  const [forcePlay,setForcePlay]=useState(false);
 
   const showToast=msg=>{setToast(msg);setToastKey(k=>k+1);};
 
@@ -536,7 +561,7 @@ function App(){
         if(!still){
           const mp4=active.replace(/\.[^.]+$/,'.mp4');
           const it=findItem(t,mp4);
-          if(it){setActive(mp4);setActiveItem(it);}
+          if(it){setActive(mp4);setActiveItem(it);setForcePlay(true);}
         }
       }
     }catch{}
@@ -601,7 +626,7 @@ function App(){
         )}
       </div>
       <div className="main">
-        <Player item={activeItem} prog={prog} root={root} autoplay={autoplay} tree={tree} onToggle={handleToggle} onSelect={handleSelect}/>
+        <Player item={activeItem} prog={prog} root={root} autoplay={autoplay} tree={tree} onToggle={handleToggle} onSelect={handleSelect} forcePlay={forcePlay} onForcePlayConsumed={()=>setForcePlay(false)}/>
       </div>
     </div>
     {toast&&<div key={toastKey} className="toast">{toast}</div>}
