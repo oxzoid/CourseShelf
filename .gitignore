@@ -2,4 +2,8 @@
 node_modules
 *.db*
 temp/
+<<<<<<< HEAD
+*.mp4
+=======
 video_cache/
+>>>>>>> cd5e0d8efa8ea96f086244020ad0c3b916a86cdf
