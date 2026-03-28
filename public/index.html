@@ -249,7 +249,6 @@ function VideoPlayer({item,prog,root,autoplay,tree,onToggle,onSelect,forcePlay,o
   }
 
   useEffect(()=>{
-    console.log(`[VP] ${prevPathRef.current?.split('\\').pop()} → ${fp.split('\\').pop()} | native:${isNative}`);
     prevPathRef.current = fp;
     setCur(0);setDrag(null);setLoaded(0);setDuration(0);setPlaying(false);setBuffering(false);setShowPlay(false);
     lastSaveRef.current=0;
@@ -260,29 +259,23 @@ function VideoPlayer({item,prog,root,autoplay,tree,onToggle,onSelect,forcePlay,o
     const shouldAutoplay = autoplay || forcePlay;
     if(forcePlay && onForcePlayConsumed) onForcePlayConsumed();
 
-    if(!isNative){ console.log('[VP] blocked screen'); return; }
 
     vid.src='/api/video?file='+encodeURIComponent(item.path);
     vid.playbackRate=rate; vid.volume=vol; vid.muted=muted;
-    console.log('[VP] src set, readyState:', vid.readyState);
 
     fetch(`/api/position?root=${encodeURIComponent(root)}&file=${encodeURIComponent(fp)}`)
       .then(r=>r.json()).then(({position})=>{
         const stillValid = vidRef.current && vidRef.current.src.indexOf(encodeURIComponent(item.path))!==-1;
-        console.log(`[VP] position=${position} stillValid=${stillValid} readyState=${vid.readyState}`);
         if(!stillValid) return;
         const seekTo = position>2 ? position : 0;
         const apply = () => {
-          console.log(`[VP] apply duration=${vid.duration} seekTo=${seekTo}`);
           if(isFinite(vid.duration)){setDuration(vid.duration);setLoaded(vid.duration);}
           if(seekTo) vid.currentTime=seekTo;
           setShowPlay(!shouldAutoplay);
           if(shouldAutoplay) vid.play().catch(()=>{});
         };
         if(vid.readyState>=1) apply();
-        else { console.log('[VP] waiting loadedmetadata'); vid.addEventListener('loadedmetadata', apply, {once:true}); }
       }).catch(e=>{
-        console.error('[VP] position fetch failed:', e);
         vid.addEventListener('loadedmetadata',()=>{
           if(isFinite(vid.duration)){setDuration(vid.duration);setLoaded(vid.duration);}
           setShowPlay(!shouldAutoplay);
