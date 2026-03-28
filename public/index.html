@@ -4,533 +4,608 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
 <title>CourseShelf</title>
-<link rel="preconnect" href="https://fonts.googleapis.com"/>
-<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
 <style>
-*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+*{box-sizing:border-box;margin:0;padding:0}
 :root{
-  --bg:#0e0e10;--bg2:#15151a;--bg3:#1c1c23;--border:#2a2a35;
-  --text:#e8e8f0;--muted:#6b6b80;--accent:#e8a020;--accent2:#c47d10;
-  --done:#2a7a4a;--done-bg:#0e2018;
-  --sidebar-w:360px;--header-h:56px;
+  --bg:#0f0f11;--surface:#17171c;--surface2:#1e1e25;--border:#28282f;
+  --text:#e2e2ea;--muted:#5a5a6e;--accent:#f5a623;--accent-dim:#c47d10;
+  --green:#22c55e;--green-bg:#052010;--sidebar:320px;--header:52px;
 }
-html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:'Syne',sans-serif;}
-#root{height:100%;display:flex;flex-direction:column;}
-.header{height:var(--header-h);background:var(--bg2);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 16px;gap:12px;position:fixed;top:0;left:0;right:0;z-index:100;}
-.logo{font-size:15px;font-weight:800;letter-spacing:.04em;color:var(--accent);white-space:nowrap;}
-.logo span{color:var(--muted);font-weight:400;}
-.path-input{flex:1;background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:7px 12px;color:var(--text);font-family:'JetBrains Mono',monospace;font-size:12px;outline:none;transition:border-color .2s;}
+html,body,#root{height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;font-size:14px;}
+/* Layout */
+.header{height:var(--header);background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 14px;gap:10px;position:fixed;top:0;inset-inline:0;z-index:50;}
+.logo{font-weight:700;font-size:15px;color:var(--accent);letter-spacing:.03em;white-space:nowrap;}
+.layout{display:flex;height:calc(100vh - var(--header));margin-top:var(--header);}
+.sidebar{width:var(--sidebar);min-width:var(--sidebar);background:var(--surface);border-right:1px solid var(--border);overflow-y:auto;overflow-x:hidden;display:flex;flex-direction:column;}
+.sidebar::-webkit-scrollbar{width:4px;}
+.sidebar::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px;}
+.main{flex:1;overflow:hidden;display:flex;flex-direction:column;background:var(--bg);}
+/* Header inputs */
+.path-input{flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:6px 10px;color:var(--text);font-family:'JetBrains Mono',monospace;font-size:12px;outline:none;}
 .path-input:focus{border-color:var(--accent);}
 .path-input::placeholder{color:var(--muted);}
-.load-btn{background:var(--accent);color:#000;border:none;border-radius:6px;padding:7px 16px;font-family:'Syne',sans-serif;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;transition:background .2s;}
-.load-btn:hover{background:var(--accent2);}
-.load-btn:disabled{opacity:.5;cursor:default;}
-.layout{display:flex;height:calc(100vh - var(--header-h));margin-top:var(--header-h);}
-.sidebar{width:var(--sidebar-w);min-width:var(--sidebar-w);background:var(--bg2);border-right:1px solid var(--border);overflow-y:auto;overflow-x:hidden;}
-.sidebar::-webkit-scrollbar{width:5px;}
-.sidebar::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px;}
-.section{border-bottom:1px solid var(--border);}
-.section-header{display:flex;align-items:flex-start;gap:10px;cursor:pointer;user-select:none;background:var(--bg2);transition:background .15s;}
-.section-header:hover,.section-header.open{background:var(--bg3);}
-.section-num{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--accent);font-weight:500;min-width:28px;padding-top:2px;letter-spacing:.02em;flex-shrink:0;}
+.btn{border:none;border-radius:6px;padding:6px 14px;font-family:'Inter',sans-serif;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;transition:opacity .15s;}
+.btn:disabled{opacity:.45;cursor:default;}
+.btn-accent{background:var(--accent);color:#000;}
+.btn-accent:not(:disabled):hover{background:var(--accent-dim);}
+.btn-ghost{background:var(--surface2);color:var(--text);border:1px solid var(--border);}
+.btn-ghost:not(:disabled):hover{border-color:var(--accent);color:var(--accent);}
+.btn-green{background:#14532d;color:#86efac;border:1px solid #166534;}
+.btn-green:not(:disabled):hover{background:#166534;}
+/* Sidebar items */
+.prog-bar{padding:14px 14px 12px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;}
+.prog-circle{position:relative;flex-shrink:0;}
+.prog-circle svg{transform:rotate(-90deg);}
+.prog-pct{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700;color:var(--accent);}
+.section-hd{display:flex;align-items:flex-start;gap:8px;cursor:pointer;padding:10px 12px;user-select:none;background:var(--surface);transition:background .1s;}
+.section-hd:hover{background:var(--surface2);}
+.section-num{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--accent);min-width:24px;padding-top:1px;flex-shrink:0;}
 .section-info{flex:1;min-width:0;}
-.section-name{font-size:13px;font-weight:700;color:var(--text);line-height:1.4;word-break:break-word;}
-.section-meta{font-size:11px;color:var(--muted);margin-top:4px;font-family:'JetBrains Mono',monospace;}
-.section-progress-bar{height:2px;background:var(--border);margin-top:6px;border-radius:1px;overflow:hidden;}
-.section-progress-fill{height:100%;background:var(--accent);border-radius:1px;transition:width .3s;}
-.chevron{font-size:10px;color:var(--muted);padding-top:3px;transition:transform .2s;flex-shrink:0;}
+.section-name{font-size:12.5px;font-weight:600;line-height:1.35;word-break:break-word;}
+.section-meta{font-size:11px;color:var(--muted);margin-top:3px;font-family:'JetBrains Mono',monospace;}
+.section-pb{height:2px;background:var(--border);margin-top:5px;border-radius:1px;overflow:hidden;}
+.section-pb-fill{height:100%;background:var(--accent);border-radius:1px;transition:width .3s;}
+.chevron{font-size:9px;color:var(--muted);padding-top:2px;transition:transform .2s;flex-shrink:0;}
 .chevron.open{transform:rotate(180deg);}
-.section-body{display:none;}
-.section-body.open{display:block;}
-.section-body>.section{border-bottom:none;border-top:1px solid var(--border);}
-.file-item{display:flex;align-items:center;gap:10px;cursor:pointer;transition:background .12s;border-top:1px solid rgba(255,255,255,.03);}
-.file-item:hover{background:rgba(255,255,255,.04);}
-.file-item.active{background:rgba(232,160,32,.1);border-left:3px solid var(--accent);}
-.file-item.completed .file-name{color:var(--muted);text-decoration:line-through;}
-.file-item.completed{background:var(--done-bg);}
-.file-check{width:16px;height:16px;border:1.5px solid var(--border);border-radius:3px;flex-shrink:0;display:flex;align-items:center;justify-content:center;transition:all .15s;cursor:pointer;font-size:10px;color:#fff;font-weight:700;}
-.file-check.done{background:var(--done);border-color:var(--done);}
-.file-icon{font-size:13px;flex-shrink:0;}
-.file-name{font-size:12.5px;color:var(--text);line-height:1.4;word-break:break-word;flex:1;}
-.main{flex:1;display:flex;flex-direction:column;background:var(--bg);overflow:hidden;}
-.player-wrap{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;gap:0;overflow:hidden;}
-.empty-state{text-align:center;color:var(--muted);}
-.empty-state .big{font-size:48px;margin-bottom:16px;}
-.empty-state p{font-size:14px;line-height:1.6;}
-.video-title-bar{width:100%;max-width:1000px;display:flex;align-items:center;justify-content:space-between;padding:12px 4px;gap:12px;}
-.video-title{font-size:15px;font-weight:700;color:var(--text);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-.mark-done-btn{background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:6px 14px;font-family:'Syne',sans-serif;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;transition:all .15s;flex-shrink:0;}
-.mark-done-btn:hover{border-color:var(--accent);color:var(--accent);}
-.mark-done-btn.done{background:var(--done-bg);border-color:var(--done);color:#5cb880;}
-.video-container{width:100%;max-width:1000px;}
-video{width:100%;border-radius:8px;background:#000;outline:none;box-shadow:0 20px 60px rgba(0,0,0,.6);}
-.pdf-frame{width:100%;max-width:1000px;height:calc(100vh - var(--header-h) - 80px);border:none;border-radius:8px;background:#fff;box-shadow:0 20px 60px rgba(0,0,0,.6);}
-.text-wrap{width:100%;max-width:1000px;height:calc(100vh - var(--header-h) - 80px);overflow-y:auto;background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:28px 32px;box-shadow:0 20px 60px rgba(0,0,0,.6);}
-.text-wrap::-webkit-scrollbar{width:5px;}
-.text-wrap::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px;}
-.text-content{font-family:'JetBrains Mono',monospace;font-size:13px;line-height:1.8;color:var(--text);white-space:pre-wrap;word-break:break-word;}
-.transcode-note{color:var(--muted);font-size:11px;font-family:'JetBrains Mono',monospace;margin-top:6px;max-width:1000px;}
-.overall-progress{
-  padding:20px 16px 16px;border-bottom:1px solid var(--border);
-  display:flex;align-items:center;gap:14px;background:var(--bg2);
-}
-.circle-wrap{position:relative;width:56px;height:56px;flex-shrink:0;}
-.circle-wrap svg{transform:rotate(-90deg);}
-.circle-bg{fill:none;stroke:var(--border);stroke-width:4;}
-.circle-fill{fill:none;stroke:var(--accent);stroke-width:4;stroke-linecap:round;transition:stroke-dashoffset .4s ease;}
-.circle-pct{
-  position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
-  font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700;color:var(--accent);
-}
-.overall-info{flex:1;min-width:0;}
-.overall-label{font-size:12px;font-weight:700;color:var(--text);margin-bottom:3px;}
-.overall-sub{font-size:11px;color:var(--muted);font-family:'JetBrains Mono',monospace;}
-.toast{position:fixed;bottom:20px;right:20px;background:#3a1010;border:1px solid #7a2020;color:#f08080;padding:10px 16px;border-radius:8px;font-size:13px;z-index:999;pointer-events:none;animation:fadeout 3.2s forwards;}
-@keyframes fadeout{0%{opacity:1}70%{opacity:1}100%{opacity:0}}
+.file-item{display:flex;align-items:center;gap:8px;padding:7px 12px 7px 20px;cursor:pointer;border-top:1px solid rgba(255,255,255,.025);transition:background .1s;}
+.file-item:hover{background:rgba(255,255,255,.035);}
+.file-item.active{background:rgba(245,166,35,.1);border-left:2px solid var(--accent);padding-left:18px;}
+.file-item.done-item{background:var(--green-bg);}
+.file-item.done-item .fname{color:var(--muted);text-decoration:line-through;}
+.fcheck{width:15px;height:15px;border:1.5px solid var(--border);border-radius:3px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:9px;color:#fff;cursor:pointer;transition:all .12s;}
+.fcheck.on{background:var(--green);border-color:var(--green);}
+.ficon{font-size:12px;flex-shrink:0;}
+.fname{font-size:12px;line-height:1.35;word-break:break-word;flex:1;}
+/* Player */
+.player-wrap{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px;overflow:hidden;}
+.empty{text-align:center;color:var(--muted);}
+.empty-icon{font-size:42px;margin-bottom:12px;}
+.empty p{font-size:13px;line-height:1.7;}
+.title-bar{width:100%;max-width:1100px;display:flex;align-items:center;justify-content:space-between;padding:0 0 10px;gap:10px;}
+.video-title{font-size:14px;font-weight:600;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.mark-btn{padding:5px 12px;font-size:12px;font-weight:600;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);cursor:pointer;white-space:nowrap;transition:all .12s;}
+.mark-btn:hover{border-color:var(--accent);color:var(--accent);}
+.mark-btn.on{background:var(--green-bg);border-color:var(--green);color:#86efac;}
+/* Video shell */
+.vshell{width:100%;max-width:1100px;border-radius:12px;overflow:hidden;background:#000;box-shadow:0 16px 48px rgba(0,0,0,.6);}
+.vstage{position:relative;aspect-ratio:16/9;background:#000;cursor:pointer;}
+.vstage video{width:100%;height:100%;object-fit:contain;display:block;outline:none;}
+.vtop{position:absolute;top:0;inset-inline:0;padding:12px;background:linear-gradient(rgba(0,0,0,.6),transparent);pointer-events:none;}
+.vstatus{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;background:rgba(0,0,0,.7);border:1px solid rgba(255,255,255,.1);backdrop-filter:blur(6px);font-size:11px;font-family:'JetBrains Mono',monospace;}
+.spinner{width:12px;height:12px;border:2px solid rgba(255,255,255,.2);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;flex-shrink:0;}
+.vcenter{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;}
+.play-icon{width:68px;height:68px;border-radius:50%;background:rgba(0,0,0,.5);backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,.15);display:flex;align-items:center;justify-content:center;font-size:22px;color:#fff;}
+/* Controls */
+.vcontrols{padding:10px 12px 12px;background:linear-gradient(transparent,rgba(0,0,0,.9));}
+.seek-wrap{padding-bottom:8px;}
+.seek-track{position:relative;height:18px;display:flex;align-items:center;cursor:pointer;}
+.seek-rail,.seek-loaded,.seek-played{position:absolute;inset-inline:0;height:4px;border-radius:2px;}
+.seek-rail{background:#2a2a35;}
+.seek-loaded{background:#3a3a4a;width:0;}
+.seek-played{background:var(--accent);width:0;}
+.seek-thumb{position:absolute;top:50%;width:12px;height:12px;border-radius:50%;background:var(--accent);transform:translate(-50%,-50%);box-shadow:0 0 0 3px rgba(245,166,35,.2);}
+.seek-input{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;}
+.ctrls{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+.cleft{display:flex;align-items:center;gap:8px;flex:1;min-width:0;}
+.cright{display:flex;align-items:center;gap:8px;}
+.cbtn{border:none;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.1);border-radius:8px;color:var(--text);height:34px;min-width:34px;padding:0 10px;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:13px;transition:all .12s;}
+.cbtn:hover{border-color:var(--accent);color:var(--accent);}
+.time{font-family:'JetBrains Mono',monospace;font-size:11px;white-space:nowrap;}
+.vol-row{display:flex;align-items:center;gap:6px;}
+.vol-slider{appearance:none;width:80px;height:3px;border-radius:2px;background:#2a2a35;outline:none;}
+.vol-slider::-webkit-slider-thumb{appearance:none;width:11px;height:11px;border-radius:50%;background:var(--accent);cursor:pointer;}
+.speed-sel{height:34px;border-radius:8px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.08);color:var(--text);padding:0 8px;font-family:'JetBrains Mono',monospace;font-size:11px;outline:none;}
+/* PDF/text */
+.pdf-frame{width:100%;max-width:960px;height:calc(100vh - var(--header) - 80px);border:none;border-radius:8px;}
+.text-box{width:100%;max-width:960px;height:calc(100vh - var(--header) - 80px);overflow-y:auto;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:24px 28px;}
+.text-box::-webkit-scrollbar{width:4px;}
+.text-box::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px;}
+.text-content{font-family:'JetBrains Mono',monospace;font-size:12px;line-height:1.8;white-space:pre-wrap;word-break:break-word;}
+/* Toast */
+.toast{position:fixed;bottom:18px;right:18px;background:#2a1010;border:1px solid #6a2020;color:#f08080;padding:9px 14px;border-radius:8px;font-size:13px;z-index:999;pointer-events:none;animation:fadeout 3s forwards;}
+@keyframes fadeout{0%{opacity:1}65%{opacity:1}100%{opacity:0}}
+@keyframes spin{to{transform:rotate(360deg)}}
 </style>
 </head>
-<body>
-<div id="root"></div>
+<body><div id="root"></div>
 <script type="text/babel">
-const { useState, useEffect, useRef, useCallback } = React;
-const NATIVE_EXTS = new Set(['.mp4', '.webm', '.m4v']);
+const {useState,useEffect,useRef,useCallback,useMemo} = React;
+const NATIVE = new Set(['.mp4','.webm','.m4v']);
 
-function normPath(p) { return p ? p.replace(/\\/g, '/') : p; }
+const norm = p => p?.replace(/\\/g,'/');
+const clamp = (v,a,b) => Math.min(b,Math.max(a,v));
+const fmt = s => {
+  s = Math.max(0,Math.floor(s||0));
+  const h=Math.floor(s/3600), m=Math.floor((s%3600)/60), r=s%60;
+  return h ? `${h}:${String(m).padStart(2,'0')}:${String(r).padStart(2,'0')}` : `${m}:${String(r).padStart(2,'0')}`;
+};
 
-function countFiles(items, progress) {
-  let total = 0, done = 0;
-  for (const item of items) {
-    if (item.type === 'file') {
-      total++;
-      if (progress[normPath(item.path)]) done++;
-    } else if (item.type === 'folder') {
-      const s = countFiles(item.children, progress);
-      total += s.total; done += s.done;
-    }
+function countFiles(items,prog){
+  let t=0,d=0;
+  for(const i of items){
+    if(i.type==='file'){t++;if(prog[norm(i.path)])d++;}
+    else{const s=countFiles(i.children,prog);t+=s.t;d+=s.d;}
   }
-  return { total, done };
+  return{t,d};
 }
-
-function findItemByPath(items, fp) {
-  for (const item of items) {
-    if (item.type === 'file' && normPath(item.path) === fp) return item;
-    if (item.type === 'folder') {
-      const found = findItemByPath(item.children, fp);
-      if (found) return found;
-    }
+function flatFiles(items){
+  const r=[];
+  for(const i of items) i.type==='file'?r.push(i):r.push(...flatFiles(i.children));
+  return r;
+}
+function findItem(items,fp){
+  for(const i of items){
+    if(i.type==='file'&&norm(i.path)===fp) return i;
+    if(i.type==='folder'){const f=findItem(i.children,fp);if(f)return f;}
   }
-  return null;
 }
-
-// Flatten tree into ordered list of file items only
-function flattenFiles(items) {
-  const result = [];
-  for (const item of items) {
-    if (item.type === 'file') result.push(item);
-    else if (item.type === 'folder') result.push(...flattenFiles(item.children));
-  }
-  return result;
-}
-
-// Returns true if this folder subtree contains the active file path
-function containsPath(items, fp) {
-  for (const item of items) {
-    if (item.type === 'file' && normPath(item.path) === fp) return true;
-    if (item.type === 'folder' && containsPath(item.children, fp)) return true;
+function hasPath(items,fp){
+  for(const i of items){
+    if(i.type==='file'&&norm(i.path)===fp) return true;
+    if(i.type==='folder'&&hasPath(i.children,fp)) return true;
   }
   return false;
 }
 
-function FileItem({ item, progress, active, onSelect, onToggle, depth }) {
-  const fp = normPath(item.path);
-  const done = !!progress[fp];
-  const isActive = active === fp;
-  const icon = item.fileType === 'video' ? '▶' : item.fileType === 'pdf' ? '📄' : '📝';
-  const pl = (16 + depth * 16) + 'px';
-  return (
-    <div
-      className={'file-item' + (isActive ? ' active' : '') + (done ? ' completed' : '')}
-      style={{ padding: `9px 16px 9px ${pl}` }}
-      onClick={() => onSelect(item)}
-    >
-      <div
-        className={'file-check' + (done ? ' done' : '')}
-        onClick={e => { e.stopPropagation(); onToggle(fp, !done); }}
-      >{done ? '✓' : ''}</div>
-      <span className="file-icon">{icon}</span>
-      <span className="file-name">{item.name}</span>
+function FileItem({item,prog,active,onSelect,onToggle,depth=0}){
+  const fp=norm(item.path), done=!!prog[fp], isActive=active===fp;
+  const icon=item.fileType==='video'?'▶':item.fileType==='pdf'?'📄':'📝';
+  return(
+    <div className={`file-item${isActive?' active':''}${done?' done-item':''}`}
+      style={{paddingLeft:(20+depth*14)+'px'}} onClick={()=>onSelect(item)}>
+      <div className={`fcheck${done?' on':''}`} onClick={e=>{e.stopPropagation();onToggle(fp,!done);}}>
+        {done?'✓':''}
+      </div>
+      <span className="ficon">{icon}</span>
+      <span className="fname">{item.name}</span>
     </div>
   );
 }
 
-function Section({ item, progress, active, onSelect, onToggle, depth }) {
-  depth = depth || 0;
-  const hasActive = active ? containsPath(item.children, active) : false;
-  const [open, setOpen] = useState(hasActive);
-
-  // When active changes (e.g. after load restores last file), open if needed
-  useEffect(() => {
-    if (active && containsPath(item.children, active)) setOpen(true);
-  }, [active]);
-  const { total, done } = countFiles(item.children, progress);
-  const pct = total === 0 ? 0 : Math.round((done / total) * 100);
-  const pl = (16 + depth * 14) + 'px';
-  return (
-    <div className="section">
-      <div
-        className={'section-header' + (open ? ' open' : '')}
-        style={{ padding: `14px 16px 12px ${pl}` }}
-        onClick={() => setOpen(o => !o)}
-      >
+function Section({item,prog,active,onSelect,onToggle,depth=0}){
+  const [open,setOpen]=useState(()=>active?hasPath(item.children,active):false);
+  useEffect(()=>{if(active&&hasPath(item.children,active))setOpen(true);},[active]);
+  const {t,d}=countFiles(item.children,prog);
+  const pct=t?Math.round(d/t*100):0;
+  return(
+    <div style={{borderBottom:'1px solid var(--border)'}}>
+      <div className="section-hd" style={{paddingLeft:(12+depth*14)+'px'}} onClick={()=>setOpen(o=>!o)}>
         <div className="section-num">{item.number}</div>
         <div className="section-info">
           <div className="section-name">{item.name}</div>
-          <div className="section-meta">{done} / {total}</div>
-          <div className="section-progress-bar">
-            <div className="section-progress-fill" style={{ width: pct + '%' }}/>
+          <div className="section-meta">{d}/{t}</div>
+          <div className="section-pb"><div className="section-pb-fill" style={{width:pct+'%'}}/></div>
+        </div>
+        <div className={`chevron${open?' open':''}`}>▾</div>
+      </div>
+      {open&&<div>
+        {item.children.map((c,i)=>c.type==='folder'
+          ?<Section key={i} item={c} prog={prog} active={active} onSelect={onSelect} onToggle={onToggle} depth={depth+1}/>
+          :<FileItem key={i} item={c} prog={prog} active={active} onSelect={onSelect} onToggle={onToggle} depth={depth+1}/>
+        )}
+      </div>}
+    </div>
+  );
+}
+
+function OverallProgress({tree,prog}){
+  const {t,d}=countFiles(tree,prog);
+  const pct=t?Math.round(d/t*100):0;
+  const R=22,C=2*Math.PI*R;
+  return(
+    <div className="prog-bar">
+      <div className="prog-circle" style={{width:50,height:50}}>
+        <svg width="50" height="50" viewBox="0 0 50 50">
+          <circle cx="25" cy="25" r={R} fill="none" stroke="var(--border)" strokeWidth="3.5"/>
+          <circle cx="25" cy="25" r={R} fill="none" stroke="var(--accent)" strokeWidth="3.5"
+            strokeLinecap="round" strokeDasharray={C} strokeDashoffset={C-(pct/100)*C} style={{transition:'stroke-dashoffset .4s'}}/>
+        </svg>
+        <div className="prog-pct">{pct}%</div>
+      </div>
+      <div>
+        <div style={{fontSize:12,fontWeight:600,marginBottom:2}}>Progress</div>
+        <div style={{fontSize:11,color:'var(--muted)',fontFamily:'JetBrains Mono,monospace'}}>{d} / {t} done</div>
+      </div>
+    </div>
+  );
+}
+
+// ── Video Player ──────────────────────────────────────────────────────────────
+function VideoPlayer({item,prog,root,autoplay,tree,onToggle,onSelect}){
+  const vidRef=useRef(null);
+  const lastSaveRef=useRef(0);
+
+  const [cur,setCur]=useState(0);
+  const [drag,setDrag]=useState(null);
+  const [loaded,setLoaded]=useState(0);
+  const [duration,setDuration]=useState(0);
+  const [playing,setPlaying]=useState(false);
+  const [buffering,setBuffering]=useState(false);
+  const [showPlay,setShowPlay]=useState(false);
+  const [vol,setVol]=useState(1);
+  const [muted,setMuted]=useState(false);
+  const [rate,setRate]=useState(1);
+
+  const fp=norm(item.path);
+  const ext=item.path.slice(item.path.lastIndexOf('.')).toLowerCase();
+  const isNative=NATIVE.has(ext);
+  const done=!!prog[fp];
+
+  // Block non-native
+  if (!isNative) return (
+    <div className="player-wrap">
+      <div className="title-bar">
+        <div className="video-title">{item.name}</div>
+        <button className={`mark-btn${done?' on':''}`} onClick={()=>onToggle(fp,!done)}>{done?'✓ Done':'Mark Done'}</button>
+      </div>
+      <div style={{textAlign:'center',color:'var(--muted)',padding:'40px 20px'}}>
+        <div style={{fontSize:36,marginBottom:14}}>🎬</div>
+        <div style={{fontSize:14,fontWeight:600,color:'var(--text)',marginBottom:8}}>{ext.toUpperCase()} file — needs conversion</div>
+        <div style={{fontSize:12,lineHeight:1.7}}>Click <strong style={{color:'var(--accent)'}}>⚡ Convert to mp4</strong> in the header<br/>to convert all non-native videos for instant playback.</div>
+      </div>
+    </div>
+  );
+
+  function savePos(pos,force=false){
+    if(!root||!pos||pos<2) return;
+    const now=Date.now();
+    if(!force&&now-lastSaveRef.current<4000) return;
+    lastSaveRef.current=now;
+    fetch('/api/position',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({root,filePath:fp,position:pos})}).catch(()=>{});
+  }
+
+  useEffect(()=>{
+    setCur(0);setDrag(null);setLoaded(0);setDuration(0);setPlaying(false);setBuffering(false);setShowPlay(false);
+    lastSaveRef.current=0;
+    const vid=vidRef.current;
+    if(vid){try{vid.pause();vid.removeAttribute('src');vid.load();}catch{}}
+    fetch(`/api/position?root=${encodeURIComponent(root)}&file=${encodeURIComponent(fp)}`)
+      .then(r=>r.json()).then(({position})=>{
+        const vid=vidRef.current; if(!vid) return;
+        vid.src='/api/video?file='+encodeURIComponent(item.path);
+        vid.playbackRate=rate;vid.volume=vol;vid.muted=muted;
+        vid.addEventListener('loadedmetadata',()=>{
+          if(isFinite(vid.duration)){setDuration(vid.duration);setLoaded(vid.duration);}
+          if(position>2) vid.currentTime=position;
+          setShowPlay(!autoplay);
+          if(autoplay) vid.play().catch(()=>{});
+        },{once:true});
+      }).catch(()=>{});
+  },[item.path,root]);
+
+  useEffect(()=>{
+    const vid=vidRef.current; if(!vid) return;
+    const onPlay=()=>{setPlaying(true);setShowPlay(false);};
+    const onPause=()=>{setPlaying(false);setShowPlay(true);savePos(vid.currentTime,true);};
+    const onWait=()=>setBuffering(true);
+    const onResume=()=>setBuffering(false);
+    const onTime=()=>{if(drag==null)setCur(vid.currentTime);if(!vid.ended)savePos(vid.currentTime);};
+    const onMeta=()=>{if(isFinite(vid.duration)){setDuration(vid.duration);setLoaded(vid.duration);}};
+    const onProg=()=>{if(vid.buffered.length)try{setLoaded(vid.buffered.end(vid.buffered.length-1));}catch{}};
+    const onEnded=()=>{
+      setPlaying(false);setShowPlay(true);
+      onToggle(fp,true);
+      fetch('/api/position',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({root,filePath:fp,position:0})}).catch(()=>{});
+      const all=flatFiles(tree),idx=all.findIndex(f=>norm(f.path)===fp);
+      if(idx!==-1&&idx<all.length-1) onSelect(all[idx+1]);
+    };
+    vid.addEventListener('play',onPlay);vid.addEventListener('pause',onPause);
+    vid.addEventListener('waiting',onWait);vid.addEventListener('playing',onResume);
+    vid.addEventListener('timeupdate',onTime);vid.addEventListener('progress',onProg);
+    vid.addEventListener('loadedmetadata',onMeta);vid.addEventListener('ended',onEnded);
+    return()=>{
+      vid.removeEventListener('play',onPlay);vid.removeEventListener('pause',onPause);
+      vid.removeEventListener('waiting',onWait);vid.removeEventListener('playing',onResume);
+      vid.removeEventListener('timeupdate',onTime);vid.removeEventListener('progress',onProg);
+      vid.removeEventListener('loadedmetadata',onMeta);vid.removeEventListener('ended',onEnded);
+    };
+  },[fp,root,tree,drag]);
+
+  useEffect(()=>{const v=vidRef.current;if(v)v.playbackRate=rate;},[rate]);
+  useEffect(()=>{const v=vidRef.current;if(v)v.volume=vol;},[vol]);
+  useEffect(()=>{const v=vidRef.current;if(v)v.muted=muted;},[muted]);
+
+  useEffect(()=>{
+    const onKey=e=>{
+      if(e.target.tagName==='INPUT'||e.target.tagName==='SELECT') return;
+      const v=vidRef.current; if(!v) return;
+      if(e.key===' '){e.preventDefault();v.paused?v.play().catch(()=>{}):v.pause();}
+      else if(e.key==='ArrowRight'){e.preventDefault();v.currentTime=Math.min(v.currentTime+5,duration);}
+      else if(e.key==='ArrowLeft'){e.preventDefault();v.currentTime=Math.max(v.currentTime-5,0);}
+      else if(e.key==='ArrowUp'){e.preventDefault();setVol(x=>clamp(x+.1,0,1));}
+      else if(e.key==='ArrowDown'){e.preventDefault();setVol(x=>clamp(x-.1,0,1));}
+      else if(e.key.toLowerCase()==='m'){e.preventDefault();setMuted(m=>!m);}
+      else if(e.key.toLowerCase()==='f'){e.preventDefault();document.fullscreenElement?document.exitFullscreen():v.requestFullscreen?.();}
+    };
+    window.addEventListener('keydown',onKey);
+    return()=>window.removeEventListener('keydown',onKey);
+  },[duration]);
+
+  function seekTo(t){
+    const v=vidRef.current; if(!v) return;
+    const c=clamp(t,0,duration||0);
+    v.currentTime=c;setCur(c);savePos(c,true);
+  }
+
+  const effPos=drag!=null?drag:cur;
+  const playedPct=duration>0?(effPos/duration)*100:0;
+  const loadedPct=duration>0?(loaded/duration)*100:0;
+
+  return(
+    <div className="player-wrap">
+      <div className="title-bar">
+        <div className="video-title">{item.name}</div>
+        <button className={`mark-btn${done?' on':''}`} onClick={()=>onToggle(fp,!done)}>{done?'✓ Done':'Mark Done'}</button>
+      </div>
+      <div className="vshell">
+        <div className="vstage" onClick={()=>{const v=vidRef.current;v&&(v.paused?v.play().catch(()=>{}):v.pause());}}>
+          <video ref={vidRef} playsInline preload="auto"/>
+          <div className="vcenter">
+            {buffering&&<div className="play-icon"><div className="spinner" style={{width:20,height:20}}/></div>}
+            {!buffering&&showPlay&&!playing&&<div className="play-icon">▶</div>}
           </div>
         </div>
-        <div className={'chevron' + (open ? ' open' : '')}>▾</div>
+        <div className="vcontrols">
+          <div className="seek-wrap">
+            <div className="seek-track">
+              <div className="seek-rail"/>
+              <div className="seek-loaded" style={{width:clamp(loadedPct,0,100)+'%'}}/>
+              <div className="seek-played" style={{width:clamp(playedPct,0,100)+'%'}}/>
+              <div className="seek-thumb" style={{left:clamp(playedPct,0,100)+'%'}}/>
+              <input className="seek-input" type="range" min="0" max={duration||0} step="0.1" value={effPos}
+                onMouseDown={e=>setDrag(+e.target.value)} onTouchStart={e=>setDrag(+e.target.value)}
+                onChange={e=>setDrag(+e.target.value)}
+                onMouseUp={e=>{setDrag(null);seekTo(+e.target.value);}}
+                onTouchEnd={e=>{setDrag(null);seekTo(+e.target.value);}}
+                onKeyUp={e=>{setDrag(null);seekTo(+e.target.value);}}/>
+            </div>
+          </div>
+          <div className="ctrls">
+            <div className="cleft">
+              <button className="cbtn" onClick={()=>{const v=vidRef.current;v&&(v.paused?v.play().catch(()=>{}):v.pause());}}>
+                {playing?'⏸':'▶'}
+              </button>
+              <button className="cbtn" onClick={()=>seekTo(cur-5)}>↺5</button>
+              <button className="cbtn" onClick={()=>seekTo(cur+5)}>↻5</button>
+              <div className="vol-row">
+                <button className="cbtn" onClick={()=>setMuted(m=>!m)}>{muted||vol===0?'🔇':'🔊'}</button>
+                <input className="vol-slider" type="range" min="0" max="1" step=".01" value={muted?0:vol}
+                  onChange={e=>{const n=+e.target.value;setVol(n);if(n>0&&muted)setMuted(false);if(n===0)setMuted(true);}}/>
+              </div>
+              <span className="time">{fmt(effPos)} / {fmt(duration)}</span>
+            </div>
+            <div className="cright">
+              <select className="speed-sel" value={rate} onChange={e=>setRate(+e.target.value)}>
+                {[0.5,0.75,1,1.25,1.5,1.75,2].map(v=><option key={v} value={v}>{v}x</option>)}
+              </select>
+              <button className="cbtn" onClick={()=>vidRef.current?.requestFullscreen?.()}>⛶</button>
+            </div>
+          </div>
+        </div>
       </div>
-      <div className={'section-body' + (open ? ' open' : '')}>
-        {item.children.map((child, i) =>
-          child.type === 'folder'
-            ? <Section key={i} item={child} progress={progress} active={active} onSelect={onSelect} onToggle={onToggle} depth={depth + 1}/>
-            : <FileItem key={i} item={child} progress={progress} active={active} onSelect={onSelect} onToggle={onToggle} depth={depth + 1}/>
+    </div>
+  );
+}
+
+// ── Player (dispatches by type) ───────────────────────────────────────────────
+function Player({item,prog,root,autoplay,tree,onToggle,onSelect}){
+  const [text,setText]=useState('');
+  useEffect(()=>{
+    if(!item||item.fileType!=='text') return;
+    setText('Loading…');
+    fetch('/api/file?file='+encodeURIComponent(item.path)).then(r=>r.text()).then(setText).catch(()=>setText('Failed.'));
+  },[item?.path]);
+
+  if(!item) return(
+    <div className="player-wrap">
+      <div className="empty"><div className="empty-icon">📂</div>
+        <p>Paste a folder path above and<br/>click <strong>LOAD</strong> to get started.</p>
+      </div>
+    </div>
+  );
+
+  const fp=norm(item.path), done=!!prog[fp];
+  const markBtn=<button className={`mark-btn${done?' on':''}`} onClick={()=>onToggle(fp,!done)}>{done?'✓ Done':'Mark Done'}</button>;
+
+  if(item.fileType==='video') return(
+    <VideoPlayer item={item} prog={prog} root={root} autoplay={autoplay} tree={tree} onToggle={onToggle} onSelect={onSelect}/>
+  );
+  if(item.fileType==='pdf') return(
+    <div className="player-wrap">
+      <div className="title-bar"><div className="video-title">📄 {item.name}</div>{markBtn}</div>
+      <iframe className="pdf-frame" key={item.path} src={'/api/file?file='+encodeURIComponent(item.path)}/>
+    </div>
+  );
+  return(
+    <div className="player-wrap">
+      <div className="title-bar"><div className="video-title">📝 {item.name}</div>{markBtn}</div>
+      <div className="text-box"><pre className="text-content">{text}</pre></div>
+    </div>
+  );
+}
+
+// ── App ───────────────────────────────────────────────────────────────────────
+function App(){
+  const [path,setPath]=useState('');
+  const [loading,setLoading]=useState(false);
+  const [tree,setTree]=useState([]);
+  const [root,setRoot]=useState(null);
+  const [prog,setProg]=useState({});
+  const [active,setActive]=useState(null);
+  const [activeItem,setActiveItem]=useState(null);
+  const [autoplay,setAutoplay]=useState(false);
+  const [toast,setToast]=useState(null);
+  const [toastKey,setToastKey]=useState(0);
+  const [converting,setConverting]=useState(false);
+  const [convStatus,setConvStatus]=useState('');
+
+  const showToast=msg=>{setToast(msg);setToastKey(k=>k+1);};
+
+  useEffect(()=>{
+    fetch('/api/settings').then(r=>r.json()).then(s=>{
+      if(s.autoplay==='true') setAutoplay(true);
+      if(s.lastPath){setPath(s.lastPath);doLoad(s.lastPath);}
+    }).catch(()=>{});
+    function onUnload(){
+      try{
+        const ids=JSON.parse(sessionStorage.getItem('_cs_jobs')||'[]');
+        ids.forEach(id=>navigator.sendBeacon('/api/hls/cleanup',JSON.stringify({id})));
+      }catch{}
+    }
+    window.addEventListener('beforeunload',onUnload);
+    return()=>window.removeEventListener('beforeunload',onUnload);
+  },[]);
+
+  async function doLoad(p, preserveActive){
+    p=(p||'').trim(); if(!p) return;
+    setLoading(true);setTree([]);setProg({});
+    if(!preserveActive){setActive(null);setActiveItem(null);}
+    try{
+      const [tr,pr]=await Promise.all([
+        fetch('/api/tree?root='+encodeURIComponent(p)),
+        fetch('/api/progress?root='+encodeURIComponent(p)),
+      ]);
+      if(!tr.ok){const e=await tr.json();showToast(e.error||'Failed');return;}
+      const {root:r,tree:t}=await tr.json();
+      const rawP=await pr.json();
+      const pm={};Object.keys(rawP).forEach(k=>{pm[norm(k)]=rawP[k];});
+      setRoot(r);setTree(t);setProg(pm);
+      fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:'lastPath',value:p})}).catch(()=>{});
+
+      // Restore active: try exact path first, then swap extension to .mp4 (post-conversion)
+      const tryRestore = fp => {
+        if(!fp) return;
+        let it = findItem(t, fp);
+        if(!it){
+          // file was converted — try same path with .mp4
+          const mp4Path = fp.replace(/\.[^.]+$/, '.mp4');
+          it = findItem(t, mp4Path);
+          if(it) fp = mp4Path;
+        }
+        if(it){setActive(fp);setActiveItem(it);}
+      };
+
+      if(preserveActive){
+        tryRestore(active);
+      } else {
+        fetch('/api/last-active?root='+encodeURIComponent(p)).then(r=>r.json()).then(({filePath})=>{
+          tryRestore(filePath);
+        }).catch(()=>{});
+      }
+    }catch(e){showToast('Error: '+e.message);}
+    finally{setLoading(false);}
+  }
+
+  const handleToggle=useCallback(async(fp,completed)=>{
+    setProg(prev=>({...prev,[fp]:completed}));
+    await fetch('/api/progress',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({root,filePath:fp,completed})}).catch(()=>{});
+  },[root]);
+
+  function handleSelect(item){
+    const fp=norm(item.path);
+    setActive(fp);setActiveItem(item);
+    if(root) fetch('/api/last-active',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({root,filePath:fp})}).catch(()=>{});
+  }
+
+  function toggleAutoplay(val){
+    setAutoplay(val);
+    fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:'autoplay',value:val?'true':'false'})}).catch(()=>{});
+  }
+
+  // Silent tree refresh — never clears activeItem, just updates tree+prog
+  async function refreshTree(){
+    if(!root) return;
+    try{
+      const [tr,pr]=await Promise.all([
+        fetch('/api/tree?root='+encodeURIComponent(root)),
+        fetch('/api/progress?root='+encodeURIComponent(root)),
+      ]);
+      if(!tr.ok) return;
+      const {tree:t}=await tr.json();
+      const rawP=await pr.json();
+      const pm={};Object.keys(rawP).forEach(k=>{pm[norm(k)]=rawP[k];});
+      setTree(t);setProg(pm);
+      // Swap active to .mp4 if the .ts was converted
+      if(active){
+        const still=findItem(t,active);
+        if(!still){
+          const mp4=active.replace(/\.[^.]+$/,'.mp4');
+          const it=findItem(t,mp4);
+          if(it){setActive(mp4);setActiveItem(it);}
+        }
+      }
+    }catch{}
+  }
+
+  async function convertAll(){
+    if(!root) return showToast('Load a folder first');
+    setConverting(true);setConvStatus('scanning…');
+    try{
+      const res=await fetch('/api/convert',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({root})});
+      const d=await res.json();
+      if(d.error){showToast(d.error);setConverting(false);return;}
+      if(d.total===0){showToast('No convertible files found');setConverting(false);return;}
+      let lastRefresh = 0;
+      const poll=setInterval(async()=>{
+        const s=await fetch('/api/convert-status').then(r=>r.json());
+        setConvStatus(`${s.done}/${s.total}${s.current?' — '+s.current:''}`);
+        // Refresh tree every 5 conversions so new mp4s appear without black screen
+        if(s.done > 0 && s.done - lastRefresh >= 5){
+          lastRefresh = s.done;
+          refreshTree();
+        }
+        if(s.done>=s.total){
+          clearInterval(poll);setConverting(false);setConvStatus('');
+          showToast(s.errors?`Done — ${s.errors} failed, ${s.total-s.errors} converted`:`✓ Converted ${s.total} files`);
+          setTimeout(refreshTree, 600);
+        }
+      },800);
+    }catch(e){showToast('Failed: '+e.message);setConverting(false);}
+  }
+
+  return(<>
+    <header className="header">
+      <div className="logo">CourseShelf</div>
+      <input className="path-input" value={path} onChange={e=>setPath(e.target.value)}
+        onKeyDown={e=>e.key==='Enter'&&doLoad(path)} placeholder="Paste folder path e.g. C:\courses\js"/>
+      <button className="btn btn-accent" onClick={()=>doLoad(path)} disabled={loading}>{loading?'…':'Load'}</button>
+      {root&&(
+        <button className="btn btn-green" onClick={convertAll} disabled={converting}
+          title="Convert all non-native videos to mp4 (stream copy where possible)">
+          {converting?`⚙ ${convStatus}`:'⚡ Convert to mp4'}
+        </button>
+      )}
+      {converting&&(
+        <button className="btn" style={{background:'#3a1010',color:'#f08080',border:'1px solid #6a2020'}}
+          onClick={async()=>{await fetch('/api/convert-cancel',{method:'POST'});setConverting(false);setConvStatus('');showToast('Conversion cancelled');}}>
+          ✕ Cancel
+        </button>
+      )}
+      <label style={{display:'flex',alignItems:'center',gap:6,fontSize:12,color:'var(--muted)',whiteSpace:'nowrap',cursor:'pointer'}}>
+        <input type="checkbox" checked={autoplay} onChange={e=>toggleAutoplay(e.target.checked)} style={{accentColor:'var(--accent)'}}/>
+        Autoplay
+      </label>
+    </header>
+    <div className="layout">
+      <div className="sidebar">
+        {tree.length>0&&<OverallProgress tree={tree} prog={prog}/>}
+        {tree.length===0&&!loading&&root&&<div style={{padding:16,color:'var(--muted)',fontSize:12}}>No files found.</div>}
+        {tree.map((item,i)=>item.type==='folder'
+          ?<Section key={i} item={item} prog={prog} active={active} onSelect={handleSelect} onToggle={handleToggle}/>
+          :<FileItem key={i} item={item} prog={prog} active={active} onSelect={handleSelect} onToggle={handleToggle}/>
         )}
       </div>
-    </div>
-  );
-}
-
-function Player({ activeItem, progress, onToggle, onSelect, root, autoplay, tree }) {
-  const videoRef    = useRef(null);
-  const seekTimer   = useRef(null);
-  const saveTimer   = useRef(null);
-  const lastSaved   = useRef(0);
-  const [textContent, setTextContent] = useState('');
-
-  useEffect(() => {
-    if (activeItem?.fileType === 'text') {
-      setTextContent('Loading…');
-      fetch('/api/file?file=' + encodeURIComponent(activeItem.path))
-        .then(r => r.text()).then(setTextContent)
-        .catch(() => setTextContent('Failed to load file.'));
-    }
-    // On video change, fetch saved position and seek to it once ready
-    if (activeItem?.fileType === 'video') {
-      lastSaved.current = 0;
-      fetch('/api/position?root=' + encodeURIComponent(root) + '&file=' + encodeURIComponent(normPath(activeItem.path)))
-        .then(r => r.json())
-        .then(({ position }) => {
-          if (!position || position < 2) return;
-          const vid = videoRef.current;
-          if (!vid) return;
-          const seek = () => { vid.currentTime = position; vid.removeEventListener('loadedmetadata', seek); };
-          if (vid.readyState >= 1) { vid.currentTime = position; }
-          else { vid.addEventListener('loadedmetadata', seek); }
-        })
-        .catch(() => {});
-    }
-  }, [activeItem?.path]);
-
-  useEffect(() => {
-    if (activeItem?.fileType !== 'video') return;
-    function onKey(e) {
-      if (e.key === 'f' || e.key === 'F') {
-        const vid = videoRef.current;
-        if (!vid) return;
-        if (document.fullscreenElement) document.exitFullscreen();
-        else vid.requestFullscreen();
-      }
-    }
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [activeItem?.path]);
-
-  if (!activeItem) {
-    return (
-      <div className="player-wrap">
-        <div className="empty-state">
-          <div className="big">📂</div>
-          <p>Paste a folder path above and click <strong>LOAD</strong><br/>to browse your course files.</p>
-        </div>
-      </div>
-    );
-  }
-
-  const fp = normPath(activeItem.path);
-  const done = !!progress[fp];
-  const markBtn = (
-    <button className={'mark-done-btn' + (done ? ' done' : '')} onClick={() => onToggle(fp, !done)}>
-      {done ? '✓ Completed' : 'Mark Complete'}
-    </button>
-  );
-
-  if (activeItem.fileType === 'video') {
-    const ext = activeItem.path.slice(activeItem.path.lastIndexOf('.')).toLowerCase();
-    const needsTranscode = !NATIVE_EXTS.has(ext);
-    const baseSrc = needsTranscode
-      ? '/api/transcode?file=' + encodeURIComponent(activeItem.path)
-      : '/api/video?file=' + encodeURIComponent(activeItem.path);
-
-    function handleTimeUpdate() {
-      const now = Date.now();
-      if (now - lastSaved.current < 5000) return;
-      const vid = videoRef.current;
-      if (!vid || vid.ended || vid.currentTime < 2) return;
-      lastSaved.current = now;
-      fetch('/api/position', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ root, filePath: normPath(activeItem.path), position: vid.currentTime }),
-      }).catch(() => {});
-    }
-
-    function handleSeeking() {
-      if (!needsTranscode) return;
-      clearTimeout(seekTimer.current);
-      seekTimer.current = setTimeout(() => {
-        const vid = videoRef.current;
-        if (!vid) return;
-        const t = Math.floor(vid.currentTime);
-        vid.src = '/api/transcode?file=' + encodeURIComponent(activeItem.path) + '&t=' + t;
-        vid.load(); vid.play().catch(() => {});
-      }, 400);
-    }
-
-    return (
-      <div className="player-wrap">
-        <div className="video-title-bar">
-          <div className="video-title">{activeItem.name}</div>
-          {markBtn}
-        </div>
-        <div className="video-container">
-          <video ref={videoRef} controls key={activeItem.path}
-            autoPlay={autoplay}
-            onPause={() => {
-              const vid = videoRef.current;
-              if (!vid || vid.currentTime < 2) return;
-              lastSaved.current = Date.now();
-              fetch('/api/position', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ root, filePath: normPath(activeItem.path), position: vid.currentTime }),
-              }).catch(() => {});
-            }}
-            onEnded={() => {
-              onToggle(fp, true);
-              // Reset position
-              fetch('/api/position', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ root, filePath: normPath(activeItem.path), position: 0 }) }).catch(()=>{});
-              // Auto-advance to next file
-              const all = flattenFiles(tree);
-              const idx = all.findIndex(f => normPath(f.path) === fp);
-              if (idx !== -1 && idx < all.length - 1) onSelect(all[idx + 1]);
-            }}
-            onTimeUpdate={handleTimeUpdate}
-            onSeeking={handleSeeking}>
-            <source src={baseSrc} type="video/mp4"/>
-          </video>
-        </div>
-        {needsTranscode && <div className="transcode-note">⚡ Transcoding via ffmpeg — seeking restarts stream</div>}
-      </div>
-    );
-  }
-
-  if (activeItem.fileType === 'pdf') {
-    return (
-      <div className="player-wrap">
-        <div className="video-title-bar">
-          <div className="video-title">📄 {activeItem.name}</div>
-          {markBtn}
-        </div>
-        <iframe className="pdf-frame" key={activeItem.path}
-          src={'/api/file?file=' + encodeURIComponent(activeItem.path)}/>
-      </div>
-    );
-  }
-
-  return (
-    <div className="player-wrap">
-      <div className="video-title-bar">
-        <div className="video-title">📝 {activeItem.name}</div>
-        {markBtn}
-      </div>
-      <div className="text-wrap">
-        <pre className="text-content">{textContent}</pre>
+      <div className="main">
+        <Player item={activeItem} prog={prog} root={root} autoplay={autoplay} tree={tree} onToggle={handleToggle} onSelect={handleSelect}/>
       </div>
     </div>
-  );
-}
-
-function OverallProgress({ tree, progress }) {
-  const { total, done } = countFiles(tree, progress);
-  const pct = total === 0 ? 0 : Math.round((done / total) * 100);
-  const R = 24, C = 2 * Math.PI * R;
-  const offset = C - (pct / 100) * C;
-  return (
-    <div className="overall-progress">
-      <div className="circle-wrap">
-        <svg width="56" height="56" viewBox="0 0 56 56">
-          <circle className="circle-bg" cx="28" cy="28" r={R}/>
-          <circle className="circle-fill" cx="28" cy="28" r={R}
-            strokeDasharray={C} strokeDashoffset={offset}/>
-        </svg>
-        <div className="circle-pct">{pct}%</div>
-      </div>
-      <div className="overall-info">
-        <div className="overall-label">Course Progress</div>
-        <div className="overall-sub">{done} / {total} completed</div>
-      </div>
-    </div>
-  );
-}
-
-function App() {
-  const [pathVal, setPathVal] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [tree, setTree] = useState([]);
-  const [root, setRoot] = useState(null);
-  const [progress, setProgress] = useState({});
-  const [active, setActive] = useState(null);
-  const [activeItem, setActiveItem] = useState(null);
-  const [toastKey, setToastKey] = useState(0);
-  const [toastMsg, setToastMsg] = useState('');
-  const [settings, setSettings] = useState({ autoplay: 'false' });
-  const [showSettings, setShowSettings] = useState(false);
-
-  function showToast(msg) { setToastMsg(msg); setToastKey(k => k + 1); }
-
-  useEffect(() => {
-    fetch('/api/settings').then(r => r.json()).then(s => {
-      setSettings(s);
-      if (s.lastPath) { setPathVal(s.lastPath); load(s.lastPath); }
-    }).catch(() => {});
-    function closeSettings(e) {
-      if (!e.target.closest('.settings-wrap')) setShowSettings(false);
-    }
-    document.addEventListener('mousedown', closeSettings);
-    return () => document.removeEventListener('mousedown', closeSettings);
-  }, []);
-
-  async function load(p) {
-    p = (p || '').trim();
-    if (!p) return;
-    setLoading(true); setTree([]); setProgress({}); setActive(null); setActiveItem(null);
-    try {
-      const [treeRes, progRes] = await Promise.all([
-        fetch('/api/tree?root=' + encodeURIComponent(p)),
-        fetch('/api/progress?root=' + encodeURIComponent(p)),
-      ]);
-      if (!treeRes.ok) { const e = await treeRes.json(); showToast(e.error || 'Failed to load'); return; }
-      const { root: r, tree: t } = await treeRes.json();
-      const rawProg = await progRes.json();
-      const prog = {};
-      Object.keys(rawProg).forEach(k => { prog[normPath(k)] = rawProg[k]; });
-      setRoot(r); setTree(t); setProgress(prog);
-      fetch('/api/settings', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ key:'lastPath', value: p }) }).catch(()=>{});
-      // Restore last active file for this root
-      fetch('/api/last-active?root=' + encodeURIComponent(p))
-        .then(r => r.json())
-        .then(({ filePath }) => {
-          if (!filePath) return;
-          const found = findItemByPath(t, filePath);
-          if (found) { setActive(filePath); setActiveItem(found); }
-        }).catch(() => {});
-    } catch(e) { showToast('Network error: ' + e.message); }
-    finally { setLoading(false); }
-  }
-
-  const handleToggle = useCallback(async (fp, completed) => {
-    setProgress(prev => ({ ...prev, [fp]: completed }));
-    try {
-      await fetch('/api/progress', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ root, filePath: fp, completed }),
-      });
-    } catch(e) {
-      setProgress(prev => ({ ...prev, [fp]: !completed }));
-      showToast('Failed to save progress');
-    }
-  }, [root]);
-
-  function handleSelect(item) {
-    const fp = normPath(item.path);
-    setActive(fp);
-    setActiveItem(item);
-    if (root) {
-      fetch('/api/last-active', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ root, filePath: fp }) }).catch(()=>{});
-    }
-  }
-
-  async function saveSetting(key, value) {
-    setSettings(prev => ({ ...prev, [key]: value }));
-    setShowSettings(false);
-    await fetch('/api/settings', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ key, value }),
-    }).catch(() => {});
-  }
-
-  const autoplay = settings.autoplay === 'true';
-
-  return (
-    <>
-      <header className="header">
-        <div className="logo">COURSE<span>SHELF</span></div>
-        <input className="path-input" value={pathVal}
-          onChange={e => setPathVal(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && load(pathVal)}
-          placeholder="Paste absolute folder path  e.g. C:\Users\Pranav\courses\js"/>
-        <button className="load-btn" onClick={() => load(pathVal)} disabled={loading}>
-          {loading ? '…' : 'LOAD'}
-        </button>
-        <div className="settings-wrap" style={{position:'relative',flexShrink:0}}>
-          <button className="load-btn" style={{background:'var(--bg3)',color:'var(--text)',border:'1px solid var(--border)'}}
-            onClick={() => setShowSettings(s => !s)}>⚙</button>
-          {showSettings && (
-            <div style={{position:'absolute',right:0,top:'calc(100% + 8px)',background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:'8px',padding:'12px 16px',minWidth:'220px',zIndex:200,boxShadow:'0 8px 32px rgba(0,0,0,0.5)'}}>
-              <div style={{fontSize:'11px',color:'var(--muted)',fontFamily:'JetBrains Mono,monospace',marginBottom:'10px',letterSpacing:'.04em'}}>SETTINGS</div>
-              <div style={{fontSize:'13px',color:'var(--text)',marginBottom:'8px',fontWeight:600}}>Video Playback</div>
-              <div style={{display:'flex',flexDirection:'column',gap:'6px'}}>
-                <label style={{display:'flex',alignItems:'center',gap:'8px',cursor:'pointer',fontSize:'13px',color: autoplay ? 'var(--accent)' : 'var(--text)'}}>
-                  <input type="radio" name="autoplay" checked={autoplay} onChange={() => saveSetting('autoplay','true')}
-                    style={{accentColor:'var(--accent)'}}/>
-                  Autoplay on open
-                </label>
-                <label style={{display:'flex',alignItems:'center',gap:'8px',cursor:'pointer',fontSize:'13px',color: !autoplay ? 'var(--accent)' : 'var(--text)'}}>
-                  <input type="radio" name="autoplay" checked={!autoplay} onChange={() => saveSetting('autoplay','false')}
-                    style={{accentColor:'var(--accent)'}}/>
-                  Start paused
-                </label>
-              </div>
-            </div>
-          )}
-        </div>
-      </header>
-      <div className="layout">
-        <div className="sidebar">
-          {tree.length > 0 && <OverallProgress tree={tree} progress={progress}/>}
-          {tree.length === 0 && !loading && root &&
-            <div style={{padding:'20px',color:'var(--muted)',fontSize:'13px'}}>No supported files found.</div>}
-          {tree.map((item, i) =>
-            item.type === 'folder'
-              ? <Section key={i} item={item} progress={progress} active={active} onSelect={handleSelect} onToggle={handleToggle} depth={0}/>
-              : <FileItem key={i} item={item} progress={progress} active={active} onSelect={handleSelect} onToggle={handleToggle} depth={0}/>
-          )}
-        </div>
-        <div className="main">
-          <Player activeItem={activeItem} progress={progress} onToggle={handleToggle} onSelect={handleSelect} root={root} autoplay={autoplay} tree={tree}/>
-        </div>
-      </div>
-      {toastMsg && <div key={toastKey} className="toast">{toastMsg}</div>}
-    </>
-  );
+    {toast&&<div key={toastKey} className="toast">{toast}</div>}
+  </>);
 }
 
 ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
