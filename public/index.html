@@ -318,19 +318,26 @@ function VideoPlayer({item,prog,root,autoplay,tree,onToggle,onSelect,forcePlay,o
   useEffect(()=>{const v=vidRef.current;if(v)v.muted=muted;},[muted]);
 
   useEffect(()=>{
+    let lastToggle=0;
+    const toggle=v=>{
+      const now=Date.now();
+      if(now-lastToggle<120)return;   // debounce 120ms
+      lastToggle=now;
+      v.paused?v.play().catch(()=>{}):v.pause();
+    };
     const onKey=e=>{
       if(e.target.tagName==='INPUT'||e.target.tagName==='SELECT') return;
       const v=vidRef.current; if(!v) return;
-      if(e.key===' '){e.preventDefault();v.paused?v.play().catch(()=>{}):v.pause();}
+      if(e.key===' '){e.preventDefault();e.stopPropagation();toggle(v);}
       else if(e.key==='ArrowRight'){e.preventDefault();v.currentTime=Math.min(v.currentTime+5,duration);}
       else if(e.key==='ArrowLeft'){e.preventDefault();v.currentTime=Math.max(v.currentTime-5,0);}
       else if(e.key==='ArrowUp'){e.preventDefault();setVol(x=>clamp(x+.1,0,1));}
       else if(e.key==='ArrowDown'){e.preventDefault();setVol(x=>clamp(x-.1,0,1));}
       else if(e.key.toLowerCase()==='m'){e.preventDefault();setMuted(m=>!m);}
-      else if(e.key.toLowerCase()==='f'){e.preventDefault();document.fullscreenElement?document.exitFullscreen():v.requestFullscreen?.();}
+      else if(e.key.toLowerCase()==='f'){e.preventDefault();document.fullscreenElement?document.exitFullscreen():vidRef.current?.requestFullscreen?.();}
     };
-    window.addEventListener('keydown',onKey);
-    return()=>window.removeEventListener('keydown',onKey);
+    document.addEventListener('keydown',onKey,true);  // capture phase
+    return()=>document.removeEventListener('keydown',onKey,true);
   },[duration]);
 
   function seekTo(t){
@@ -352,7 +359,15 @@ function VideoPlayer({item,prog,root,autoplay,tree,onToggle,onSelect,forcePlay,o
 
       {/* Always render video shell so vidRef stays mounted across native/non-native switches */}
       <div className="vshell" style={{display: isNative ? 'block' : 'none'}}>
-        <div className="vstage" onClick={()=>{const v=vidRef.current;v&&(v.paused?v.play().catch(()=>{}):v.pause());}}>
+        <div className="vstage" onClick={(e)=>{
+  e.preventDefault();
+  const v=vidRef.current;
+  if(!v)return;
+  const now=Date.now();
+  if(now-(vidRef._lastClick||0)<120)return;
+  vidRef._lastClick=now;
+  v.paused?v.play().catch(()=>{}):v.pause();
+}}>
           <video ref={vidRef} playsInline preload="auto"/>
           <div className="vcenter">
             {buffering&&<div className="play-icon"><div className="spinner" style={{width:20,height:20}}/></div>}
