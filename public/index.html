@@ -416,7 +416,7 @@ function VideoPlayer({item,prog,root,autoplay,tree,onToggle,onSelect,forcePlay,o
               <select className="speed-sel" value={rate} onChange={e=>setRate(+e.target.value)}>
                 {[0.5,0.75,1,1.25,1.5,1.75,2].map(v=><option key={v} value={v}>{v}x</option>)}
               </select>
-              <button className="cbtn" onClick={()=>shellRef.current?.requestFullscreen?.()}>⛶</button>
+              <button className="cbtn" onClick={()=>{document.fullscreenElement?document.exitFullscreen():shellRef.current?.requestFullscreen?.();}}>⛶</button>
             </div>
           </div>
         </div>
